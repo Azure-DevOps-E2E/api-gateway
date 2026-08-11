@@ -1,8 +1,8 @@
-# Polyglot Mini Shop
+# NexusCart
 
 > Trạng thái: **MVP đã được triển khai và kiểm thử end-to-end**.
 
-Polyglot Mini Shop là một ứng dụng demo microservices nhỏ, gồm đúng **4 application service**: 1 frontend và 3 backend. Một NGINX API Gateway được đặt phía trước như thành phần hạ tầng thứ năm để trình duyệt chỉ cần giao tiếp với một địa chỉ duy nhất.
+NexusCart là một ứng dụng demo microservices nhỏ, gồm đúng **4 application service**: 1 frontend và 3 backend. Một NGINX API Gateway được đặt phía trước như thành phần hạ tầng thứ năm để trình duyệt chỉ cần giao tiếp với một địa chỉ duy nhất.
 
 ## 1. Mục tiêu
 
@@ -32,6 +32,37 @@ Mở `http://localhost:8080`. Kiểm tra end-to-end bằng PowerShell:
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/smoke.ps1
 ```
 
+Dashboard health của toàn hệ thống nằm tại `http://localhost:8080/health` và tự
+cập nhật mỗi 10 giây. Có thể kiểm tra nhanh từ terminal:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/health.ps1
+```
+
+Mỗi component cũng có endpoint JSON riêng:
+
+| Component | Endpoint public |
+|---|---|
+| API Gateway | `/health/api-gateway` |
+| Frontend | `/health/frontend` |
+| User Service | `/health/user-service` |
+| Catalog Service | `/health/catalog-service` |
+| Order Service | `/health/order-service` |
+
+Response health thống nhất:
+
+```json
+{
+  "status": "UP",
+  "service": "user-service",
+  "version": "1.0.0"
+}
+```
+
+Docker Compose dùng `APP_VERSION=1.0.0` mặc định. Khi deploy AKS, service
+pipeline truyền `Build.BuildId` vào `APP_VERSION` và kiểm tra lại đúng version
+qua gateway sau rollout.
+
 Dừng và xóa các container/network của demo:
 
 ```bash
@@ -40,11 +71,127 @@ docker compose down
 
 Chỉ API Gateway publish cổng ra host. Bốn application container còn lại chỉ giao tiếp trong Compose network.
 
+## Chạy từng service ở local
+
+Cách này phù hợp khi cần phát triển hoặc kiểm thử riêng một service. Mỗi service
+nên được mở trong một cửa sổ PowerShell riêng.
+
+| Service | Runtime cần cài |
+|---|---|
+| Frontend | Node.js 24 và npm |
+| User Service | Go 1.26 |
+| Catalog Service | Python 3.13 |
+| Order Service | JDK 21; Maven đã có wrapper trong repository |
+
+### User Service
+
+```powershell
+cd D:\MT\AzureDevOps\user-service
+go mod download
+go run ./cmd/server
+```
+
+Service chạy tại `http://localhost:8081`. Kiểm tra:
+
+```powershell
+Invoke-RestMethod http://localhost:8081/health
+Invoke-RestMethod http://localhost:8081/api/v1/users
+```
+
+### Catalog Service
+
+```powershell
+cd D:\MT\AzureDevOps\catalog-service
+py -3.13 -m venv .venv
+.\.venv\Scripts\python.exe -m pip install -r requirements-dev.txt
+.\.venv\Scripts\python.exe -m uvicorn app.main:app --reload --port 8000
+```
+
+Service chạy tại `http://localhost:8000`. Kiểm tra:
+
+```powershell
+Invoke-RestMethod http://localhost:8000/health
+Invoke-RestMethod http://localhost:8000/api/v1/products
+```
+
+OpenAPI UI nằm tại `http://localhost:8000/docs`.
+
+### Order Service
+
+Để tạo đơn hàng thành công, khởi động User Service và Catalog Service trước.
+
+```powershell
+cd D:\MT\AzureDevOps\order-service
+
+$env:PORT = "8083"
+$env:USER_SERVICE_URL = "http://localhost:8081"
+$env:CATALOG_SERVICE_URL = "http://localhost:8000"
+$env:APP_VERSION = "1.0.0"
+
+.\mvnw.cmd spring-boot:run
+```
+
+Service chạy tại `http://localhost:8083`. Kiểm tra:
+
+```powershell
+Invoke-RestMethod http://localhost:8083/health
+Invoke-RestMethod http://localhost:8083/api/v1/orders
+```
+
+Trên Linux hoặc macOS dùng `./mvnw spring-boot:run`.
+
+### Frontend
+
+```powershell
+cd D:\MT\AzureDevOps\frontend
+npm ci
+npm run dev
+```
+
+Vite chạy tại `http://localhost:5173`. Lệnh `npm ci` chỉ cần chạy lần đầu
+hoặc khi `package-lock.json` thay đổi.
+
+Frontend dev proxy mọi request `/api` tới `http://localhost:8080`. Vì vậy
+trang vẫn mở khi chỉ chạy frontend, nhưng dữ liệu API sẽ không tải được nếu API
+Gateway chưa chạy.
+
+### Thứ tự khởi động đề xuất
+
+1. User Service và Catalog Service có thể chạy song song.
+2. Chạy Order Service sau hai dependency trên.
+3. Nếu chỉ kiểm thử backend, gọi trực tiếp các cổng `8081`, `8000` và `8083`.
+4. Nếu cần chạy giao diện end-to-end, dùng Docker Compose để có API Gateway.
+
+Để phát triển frontend có hot reload nhưng vẫn dùng API thật, giữ toàn bộ stack
+Docker chạy ở terminal thứ nhất:
+
+```powershell
+cd D:\MT\AzureDevOps\platform
+docker compose up --build
+```
+
+Sau đó chạy `npm run dev` trong repository `frontend` ở terminal thứ hai và
+mở `http://localhost:5173`.
+
+API Gateway hiện dùng DNS nội bộ của Docker như `user-service` và
+`catalog-service`, nên không chạy gateway độc lập với các backend native bằng
+cấu hình production hiện tại.
+
+Nhấn `Ctrl+C` trong từng terminal để dừng service.
+
+## CI/CD trên Azure Pipelines
+
+Bốn service dùng chung một stage template để test, build Docker, scan Trivy,
+push ACR và deploy AKS bằng Helm. Pipeline `platform-e2e` checkout cả năm repo
+và kiểm thử tích hợp qua API Gateway. Hướng dẫn tạo service connection, variable
+group, environments, pipeline definitions và bootstrap Helm nằm tại
+[`pipelines/README.md`](pipelines/README.md).
+
 ## 2. Phạm vi service
 
 | Thành phần | Công nghệ | Trách nhiệm | Cổng nội bộ |
 |---|---|---|---:|
-| `frontend` | React + TypeScript + Vite | Giao diện Mini Shop | `80` |
+| `frontend` | React + TypeScript + Vite | Giao diện NexusCart | `80` |
 | `user-service` | Go + Gin | Danh sách và thông tin khách hàng | `8081` |
 | `catalog-service` | Python + FastAPI | Danh mục, giá và tồn kho sản phẩm | `8000` |
 | `order-service` | Java + Spring Boot + Maven | Tạo, lưu và truy vấn đơn hàng | `8083` |
@@ -238,10 +385,15 @@ AzureDevOps/
 ├── catalog-service/   # Git repo: Python/FastAPI
 ├── order-service/     # Git repo: Java/Spring Boot
 └── platform/          # Git repo: tích hợp và vận hành local
+    ├── deploy/helm/   # Chart cho 4 service và gateway
     ├── gateway/
-    │   └── nginx.conf
+    │   ├── nginx.conf
+    │   └── health.html
+    ├── pipelines/     # Shared service template và full-stack E2E
     ├── scripts/
-    │   └── smoke.ps1
+    │   ├── health.ps1
+    │   ├── smoke.ps1
+    │   └── wait-health.ps1
     ├── docs/
     │   └── api-contract.md
     ├── compose.yaml
@@ -371,14 +523,14 @@ Lệnh test theo từng thư mục:
 - Đăng nhập, phân quyền và quản lý secret.
 - Database, migration, cache, message broker và distributed transaction.
 - Trừ tồn kho thực sự hoặc xử lý concurrent reservation.
-- Kubernetes, service discovery ngoài Docker DNS, autoscaling.
+- Autoscaling, ingress controller production và policy mạng Kubernetes nâng cao.
 - Metrics, distributed tracing, rate limiting và circuit breaker hoàn chỉnh.
 
 Hướng mở rộng hợp lý sau MVP là thêm database riêng cho từng backend, JWT tại gateway, OpenTelemetry, circuit breaker/retry có giới hạn, rồi mới cân nhắc Kafka/RabbitMQ cho luồng `OrderCreated`.
 
 ## 14. Rủi ro và trade-off đã biết
 
-- Polyglot giúp minh họa nhiều stack nhưng làm build/test và dependency management nặng hơn một mono-stack.
+- Kiến trúc đa ngôn ngữ giúp minh họa nhiều stack nhưng làm build/test và dependency management nặng hơn một mono-stack.
 - Java service có thời gian build/start và image lớn hơn Go/Python; multi-stage build và layer cache sẽ giảm phần nào chi phí này.
 - Order Service phụ thuộc đồng bộ vào hai service khác khi tạo đơn; timeout rõ ràng và `503` giúp failure dễ quan sát, nhưng chưa tạo được đơn khi upstream lỗi.
 - In-memory storage giúp demo nhanh nhưng không bền và chỉ phù hợp chạy một replica.

@@ -1,0 +1,143 @@
+name: platform-e2e_$(Date:yyyyMMdd)$(Rev:.r)
+
+trigger:
+  branches:
+    include:
+      - '*'
+
+pr:
+  branches:
+    include:
+      - '*'
+
+resources:
+  pipelines:
+    - pipeline: frontendCi
+      source: frontend
+      trigger:
+        branches:
+          include:
+            - main
+        stages:
+          - CI
+    - pipeline: userServiceCi
+      source: user-service
+      trigger:
+        branches:
+          include:
+            - main
+        stages:
+          - CI
+    - pipeline: catalogServiceCi
+      source: catalog-service
+      trigger:
+        branches:
+          include:
+            - main
+        stages:
+          - CI
+    - pipeline: orderServiceCi
+      source: order-service
+      trigger:
+        branches:
+          include:
+            - main
+        stages:
+          - CI
+  repositories:
+    - repository: frontend
+      type: github
+      endpoint: github-azure-devops-end-to-end
+      name: Azure-DevOps-End-to-End/frontend
+      ref: refs/heads/main
+    - repository: userService
+      type: github
+      endpoint: github-azure-devops-end-to-end
+      name: Azure-DevOps-End-to-End/user-service
+      ref: refs/heads/main
+    - repository: catalogService
+      type: github
+      endpoint: github-azure-devops-end-to-end
+      name: Azure-DevOps-End-to-End/catalog-service
+      ref: refs/heads/main
+    - repository: orderService
+      type: github
+      endpoint: github-azure-devops-end-to-end
+      name: Azure-DevOps-End-to-End/order-service
+      ref: refs/heads/main
+
+stages:
+  - stage: E2E
+    displayName: Full-stack Docker Compose E2E
+    jobs:
+      - job: ComposeSmoke
+        displayName: Build, start and smoke test all services
+        pool:
+          vmImage: ubuntu-latest
+        workspace:
+          clean: all
+        steps:
+          - checkout: self
+            clean: true
+            path: s/platform
+          - checkout: frontend
+            clean: true
+            path: s/frontend
+          - checkout: userService
+            clean: true
+            path: s/user-service
+          - checkout: catalogService
+            clean: true
+            path: s/catalog-service
+          - checkout: orderService
+            clean: true
+            path: s/order-service
+
+          - bash: docker compose config --quiet
+            displayName: Validate Compose configuration
+            workingDirectory: $(Pipeline.Workspace)/s/platform
+
+          - bash: docker compose build
+            displayName: Build all application images
+            workingDirectory: $(Pipeline.Workspace)/s/platform
+
+          - bash: docker compose up --detach --wait --wait-timeout 240
+            displayName: Start and wait for the full stack
+            workingDirectory: $(Pipeline.Workspace)/s/platform
+
+          - task: PowerShell@2
+            displayName: Check component health and versions
+            inputs:
+              pwsh: true
+              targetType: filePath
+              filePath: $(Pipeline.Workspace)/s/platform/scripts/health.ps1
+              arguments: -BaseUrl "http://localhost:8080"
+
+          - task: PowerShell@2
+            displayName: Create and verify an order through the gateway
+            inputs:
+              pwsh: true
+              targetType: filePath
+              filePath: $(Pipeline.Workspace)/s/platform/scripts/smoke.ps1
+              arguments: -BaseUrl "http://localhost:8080"
+
+          - bash: |
+              mkdir -p "$(Build.ArtifactStagingDirectory)/compose"
+              docker compose ps --all > "$(Build.ArtifactStagingDirectory)/compose/ps.txt" || true
+              docker compose logs --no-color > "$(Build.ArtifactStagingDirectory)/compose/logs.txt" 2>&1 || true
+            displayName: Capture Compose diagnostics
+            condition: failed()
+            workingDirectory: $(Pipeline.Workspace)/s/platform
+
+          - task: PublishPipelineArtifact@1
+            displayName: Publish failed Compose diagnostics
+            condition: failed()
+            inputs:
+              targetPath: $(Build.ArtifactStagingDirectory)/compose
+              artifact: compose-diagnostics
+              publishLocation: pipeline
+
+          - bash: docker compose down --remove-orphans
+            displayName: Stop and remove the test stack
+            condition: always()
+            workingDirectory: $(Pipeline.Workspace)/s/platform

@@ -15,9 +15,21 @@ function Assert-True {
     }
 }
 
-Write-Host "Checking gateway..."
-$gateway = Invoke-RestMethod -Uri "$BaseUrl/gateway-health"
-Assert-True ($gateway.status -eq "UP") "Gateway is not healthy"
+Write-Host "Checking service health and versions..."
+$healthChecks = @(
+    @{ Path = "/health/api-gateway"; Service = "api-gateway" },
+    @{ Path = "/health/frontend"; Service = "frontend" },
+    @{ Path = "/health/user-service"; Service = "user-service" },
+    @{ Path = "/health/catalog-service"; Service = "catalog-service" },
+    @{ Path = "/health/order-service"; Service = "order-service" }
+)
+
+foreach ($check in $healthChecks) {
+    $health = Invoke-RestMethod -Uri "$BaseUrl$($check.Path)"
+    Assert-True ($health.status -eq "UP") "$($check.Service) is not healthy"
+    Assert-True ($health.service -eq $check.Service) "$($check.Service) returned an unexpected service name"
+    Assert-True (-not [string]::IsNullOrWhiteSpace($health.version)) "$($check.Service) did not report a version"
+}
 
 Write-Host "Reading users and products through the gateway..."
 $users = Invoke-RestMethod -Uri "$BaseUrl/api/v1/users"

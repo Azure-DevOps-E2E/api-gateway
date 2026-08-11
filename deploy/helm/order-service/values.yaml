@@ -1,0 +1,45 @@
+replicaCount: 1
+
+image:
+  repository: example.azurecr.io/order-service
+  tag: "1.0.0"
+  pullPolicy: IfNotPresent
+
+appVersion: "1.0.0"
+nameOverride: ""
+fullnameOverride: ""
+
+containerPort: 8083
+
+service:
+  type: ClusterIP
+  port: 8083
+
+health:
+  path: /health
+  readinessInitialDelaySeconds: 3
+  livenessInitialDelaySeconds: 10
+
+env:
+  - name: PORT
+    value: "8083"
+  - name: USER_SERVICE_URL
+    value: "http://user-service:8081"
+  - name: CATALOG_SERVICE_URL
+    value: "http://catalog-service:8000"
+
+podAnnotations: {}
+podSecurityContext: {}
+securityContext: {}
+
+resources:
+  requests:
+    cpu: 200m
+    memory: 384Mi
+  limits:
+    cpu: 750m
+    memory: 768Mi
+
+nodeSelector: {}
+tolerations: []
+affinity: {}
