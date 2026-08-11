@@ -1,0 +1,23 @@
+trigger:
+  branches:
+    include:
+      - '*'
+
+resources:
+  repositories:
+    - repository: devops
+      type: github
+      endpoint: github-azure-devops-e2e
+      name: Azure-DevOps-E2E/devops
+      ref: refs/heads/main
+
+extends:
+  template: pipelines/templates/service-pipeline.yml@devops
+  parameters:
+    serviceName: api-gateway
+    imageRepository: api-gateway
+    testCommand: |
+      npm ci
+      npm test
+      npm run check
+    dockerfilePath: Dockerfile

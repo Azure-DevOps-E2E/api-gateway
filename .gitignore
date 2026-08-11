@@ -1,6 +1,7 @@
 # Local environment
 .env
 *.log
+node_modules/
 
 # Local verification artifacts
 artifacts/

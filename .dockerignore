@@ -1,0 +1,7 @@
+.git
+.gitignore
+node_modules
+test
+*.log
+azure-pipelines.yml
+README.md
