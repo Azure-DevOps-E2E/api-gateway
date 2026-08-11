@@ -1,0 +1,12 @@
+# Local environment
+.env
+*.log
+
+# Local verification artifacts
+artifacts/
+
+# Editors and OS
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
