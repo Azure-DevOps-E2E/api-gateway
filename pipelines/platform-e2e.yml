@@ -47,23 +47,23 @@ resources:
   repositories:
     - repository: frontend
       type: github
-      endpoint: github-azure-devops-end-to-end
-      name: Azure-DevOps-End-to-End/frontend
+      endpoint: github-azure-devops-e2e
+      name: Azure-DevOps-E2E/frontend
       ref: refs/heads/main
     - repository: userService
       type: github
-      endpoint: github-azure-devops-end-to-end
-      name: Azure-DevOps-End-to-End/user-service
+      endpoint: github-azure-devops-e2e
+      name: Azure-DevOps-E2E/user-service
       ref: refs/heads/main
     - repository: catalogService
       type: github
-      endpoint: github-azure-devops-end-to-end
-      name: Azure-DevOps-End-to-End/catalog-service
+      endpoint: github-azure-devops-e2e
+      name: Azure-DevOps-E2E/catalog-service
       ref: refs/heads/main
     - repository: orderService
       type: github
-      endpoint: github-azure-devops-end-to-end
-      name: Azure-DevOps-End-to-End/order-service
+      endpoint: github-azure-devops-e2e
+      name: Azure-DevOps-E2E/order-service
       ref: refs/heads/main
 
 stages:

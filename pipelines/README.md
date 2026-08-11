@@ -2,7 +2,7 @@
 
 Thư mục này chứa pipeline dùng chung cho bốn application service và pipeline
 integration của toàn hệ thống. Source code đang nằm trên GitHub organization
-`Azure-DevOps-End-to-End`, còn pipeline chạy trên Azure Pipelines.
+`Azure-DevOps-E2E`, còn pipeline chạy trên Azure Pipelines.
 
 ## Các pipeline
 
@@ -46,7 +46,7 @@ Trong Azure DevOps, vào **Project settings > Service connections**, tạo GitHu
 service connection có đúng tên:
 
 ```text
-github-azure-devops-end-to-end
+github-azure-devops-e2e
 ```
 
 Connection cần quyền đọc năm repository trong organization. Tên connection là
