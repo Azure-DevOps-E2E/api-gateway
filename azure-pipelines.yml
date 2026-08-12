@@ -7,7 +7,7 @@ resources:
   repositories:
     - repository: devops
       type: github
-      endpoint: github-azure-devops-e2e
+      endpoint: azure-devops-e2e#github-azure-devops-e2e
       name: Azure-DevOps-E2E/devops
       ref: refs/heads/main
 
