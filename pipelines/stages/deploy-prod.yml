@@ -1,0 +1,84 @@
+stages:
+  - stage: Approval
+    displayName: Approve PROD
+    dependsOn: Verify_DEV
+    condition: succeeded()
+    jobs:
+      - job: WaitForApproval
+        displayName: Manual production approval
+        pool: server
+        timeoutInMinutes: 4320
+        steps:
+          - task: ManualValidation@0
+            timeoutInMinutes: 1440
+            inputs:
+              notifyUsers: |
+                $(prodApprovers)
+              instructions: Review DEV health, smoke results and image tag $(imageTag) before approving PROD.
+              onTimeout: reject
+
+  - stage: Deploy_PROD
+    displayName: Deploy PROD
+    dependsOn: Approval
+    condition: succeeded()
+    jobs:
+      - deployment: DeployProd
+        displayName: Helm deploy $(serviceName) to PROD
+        pool:
+          vmImage: $(vmImage)
+        environment: nexuscart-prod
+        strategy:
+          runOnce:
+            deploy:
+              steps:
+                - checkout: pipelineTemplates
+                  clean: true
+                  path: s/devops
+                - task: HelmDeploy@1
+                  displayName: Helm upgrade PROD
+                  inputs:
+                    connectionType: Azure Resource Manager
+                    azureSubscription: $(azureServiceConnection)
+                    azureResourceGroup: $(aksResourceGroup)
+                    kubernetesCluster: $(aksClusterName)
+                    namespace: prod
+                    command: upgrade
+                    chartType: FilePath
+                    chartPath: $(Pipeline.Workspace)/s/devops/deploy/helm/$(serviceName)
+                    releaseName: $(serviceName)
+                    valueFile: $(Pipeline.Workspace)/s/devops/deploy/helm/$(serviceName)/values-prod.yaml
+                    overrideValues: image.repository=$(acrLoginServer)/$(imageRepository),image.tag=$(imageTag),appVersion=$(imageTag)
+                    install: true
+                    waitForExecution: true
+                    arguments: --atomic --create-namespace --timeout 5m
+
+  - stage: Verify_PROD
+    displayName: Health PROD
+    dependsOn: Deploy_PROD
+    condition: succeeded()
+    jobs:
+      - job: VerifyProd
+        displayName: Verify production health
+        pool:
+          vmImage: $(vmImage)
+        steps:
+          - checkout: pipelineTemplates
+            clean: true
+            path: s/devops
+          - task: PowerShell@2
+            displayName: Wait for PROD health
+            inputs:
+              pwsh: true
+              targetType: filePath
+              filePath: $(Pipeline.Workspace)/s/devops/scripts/wait-health.ps1
+              arguments: -BaseUrl "$(prodBaseUrl)" -TimeoutSeconds 300
+          - task: PowerShell@2
+            displayName: Check PROD components and deployed version
+            inputs:
+              pwsh: true
+              targetType: filePath
+              filePath: $(Pipeline.Workspace)/s/devops/scripts/health.ps1
+              arguments: >-
+                -BaseUrl "$(prodBaseUrl)"
+                -ExpectedService "$(serviceName)"
+                -ExpectedVersion "$(imageTag)"

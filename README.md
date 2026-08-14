@@ -1,112 +1,204 @@
-# API Gateway
+# NexusCart API Gateway
 
-API Gateway là public entry point của hệ thống. Service được viết bằng Node.js
-24 với HTTP module có sẵn, không có runtime dependency và không dùng NGINX cho
-logic routing.
+The API Gateway is the single public HTTP entry point for NexusCart. It serves
+the frontend, routes API calls to the owning service, propagates request IDs,
+and exposes a consolidated health surface.
 
-## Responsibilities
+The runtime uses the built-in Node.js HTTP modules and has no third-party
+production dependency.
 
-- Trả frontend cho `/` và các non-API path.
-- Route User, Catalog và Order API theo path.
-- Giữ browser trên một origin bằng relative URL `/api/v1/...`.
-- Tạo hoặc truyền tiếp `X-Request-ID`.
-- Áp dụng upstream timeout, giới hạn request body 1 MiB và chuẩn hóa lỗi gateway.
-- Phục vụ dashboard health và proxy health của từng component.
+## ✨ Highlights
 
-## Routes
+- One browser origin for the frontend and all `/api/v1/*` requests.
+- Segment-safe routing for User, Catalog, and Order APIs.
+- Generated or caller-provided `X-Request-ID` propagation.
+- Forwarded client headers for upstream request context.
+- Configurable upstream timeouts and a 1 MiB default body limit.
+- Common JSON errors for routing and upstream failures.
+- HTML health dashboard plus stable component health endpoints.
+- Structured request logs and graceful shutdown.
+- Non-root Node.js container with a built-in health check.
 
-| Public path | Upstream/path |
+## 🧭 Application Architecture
+
+```mermaid
+flowchart LR
+    B[Browser] --> G[API Gateway :8080]
+    G --> F[Frontend :80]
+    G --> U[User Service :8081]
+    G --> C[Catalog Service :8082]
+    G --> O[Order Service :8083]
+    O --> U
+    O --> C
+```
+
+The gateway preserves each request path and query string when forwarding it.
+Unknown non-API paths go to the frontend so client-side routes can use the
+NGINX SPA fallback.
+
+## 🛣️ Routing Table
+
+| Public path | Destination |
 |---|---|
-| `/` và non-API path | `FRONTEND_URL` |
-| `/api/v1/users...` | `USER_SERVICE_URL` |
-| `/api/v1/products...` | `CATALOG_SERVICE_URL` |
-| `/api/v1/orders...` | `ORDER_SERVICE_URL` |
-| `/health` | Dashboard tích hợp trong gateway |
-| `/gateway-health` | Gateway liveness JSON |
-| `/health/api-gateway` | Gateway health JSON |
+| `/` and non-API paths | Frontend |
+| `/api/v1/users` and descendants | User Service |
+| `/api/v1/products` and descendants | Catalog Service |
+| `/api/v1/orders` and descendants | Order Service |
+| `/health` | Integrated HTML health dashboard |
+| `/gateway-health` | API Gateway liveness JSON |
+| `/health/api-gateway` | API Gateway health JSON |
 | `/health/frontend` | Frontend `/health` |
 | `/health/user-service` | User Service `/health` |
 | `/health/catalog-service` | Catalog Service `/health` |
 | `/health/order-service` | Order Service `/health` |
 
-Unknown `/api/...` trả `404 ROUTE_NOT_FOUND`; upstream không kết nối được trả
-`502 UPSTREAM_UNAVAILABLE`; upstream timeout trả `504 UPSTREAM_TIMEOUT`.
+Routing matches complete path segments. For example,
+`/api/v1/users/usr-001` is valid, while `/api/v1/users-extra` is not treated
+as a User Service route.
 
-## Run locally
+## 🧪 Request Examples
 
-Yêu cầu Node.js 24. Khi chạy native, trỏ gateway tới bốn service đang chạy trên
-máy local:
+Check the gateway version:
+
+```bash
+curl -i http://localhost:8080/health/api-gateway
+```
+
+Trace a request across the gateway and User Service:
+
+```bash
+curl -i \
+  -H "X-Request-ID: docs-gateway-001" \
+  http://localhost:8080/api/v1/users/usr-001
+```
+
+Create an order through the public entry point:
+
+```bash
+curl -i \
+  -X POST http://localhost:8080/api/v1/orders \
+  -H "Content-Type: application/json" \
+  -d '{"userId":"usr-001","items":[{"productId":"prd-001","quantity":2}]}'
+```
+
+## ⚠️ Gateway Errors
+
+| Status | Code | Condition |
+|---:|---|---|
+| `400` | `INVALID_REQUEST_URL` | Request target is not a safe relative URL |
+| `404` | `ROUTE_NOT_FOUND` | No service owns the requested `/api/*` path |
+| `405` | `METHOD_NOT_ALLOWED` | Health dashboard receives a method other than GET or HEAD |
+| `413` | `PAYLOAD_TOO_LARGE` | Request body exceeds `MAX_BODY_BYTES` |
+| `502` | `UPSTREAM_UNAVAILABLE` | Target service cannot be reached |
+| `504` | `UPSTREAM_TIMEOUT` | Target service exceeds `REQUEST_TIMEOUT_MS` |
+
+```json
+{
+  "error": {
+    "code": "UPSTREAM_UNAVAILABLE",
+    "message": "user-service is unavailable",
+    "requestId": "docs-gateway-001"
+  }
+}
+```
+
+Component health failures use `503` with `status: "DOWN"` instead of the
+application error shape.
+
+## 🚀 Quick Start
+
+### Prerequisites
+
+- Node.js 24 and npm.
+- Frontend, User, Catalog, and Order services running locally.
+
+PowerShell example:
 
 ```powershell
 $env:PORT = "8080"
 $env:APP_VERSION = "local"
 $env:FRONTEND_URL = "http://localhost:5173"
 $env:USER_SERVICE_URL = "http://localhost:8081"
-$env:CATALOG_SERVICE_URL = "http://localhost:8000"
+$env:CATALOG_SERVICE_URL = "http://localhost:8082"
 $env:ORDER_SERVICE_URL = "http://localhost:8083"
 npm ci
 npm start
 ```
 
-Gateway self-health vẫn hoạt động nếu upstream chưa chạy; route tương ứng sẽ trả
-health `DOWN` hoặc lỗi gateway có `requestId`.
+Open the storefront at <http://localhost:8080> or the health dashboard at
+<http://localhost:8080/health>.
 
-Để chạy đủ hệ thống bằng container, đặt repository này cạnh `frontend`,
-`user-service`, `catalog-service`, `order-service`, `devops`, rồi chạy Compose từ
-repo `devops`.
+For the simplest complete setup, use Docker Compose from the sibling
+`config-management` repository.
 
-## Test
+## ⚙️ Runtime Configuration
 
-```powershell
+| Variable | Default | Purpose |
+|---|---|---|
+| `PORT` | `8080` | Public HTTP listen port |
+| `APP_VERSION` | `1.0.0` | Gateway health version |
+| `FRONTEND_URL` | `http://frontend:80` | Frontend base URL |
+| `USER_SERVICE_URL` | `http://user-service:8081` | User Service base URL |
+| `CATALOG_SERVICE_URL` | `http://catalog-service:8082` | Catalog Service base URL |
+| `ORDER_SERVICE_URL` | `http://order-service:8083` | Order Service base URL |
+| `REQUEST_TIMEOUT_MS` | `10000` | Application upstream timeout |
+| `HEALTH_TIMEOUT_MS` | `4000` | Component health timeout |
+| `MAX_BODY_BYTES` | `1048576` | Maximum proxied request body |
+
+Invalid ports, non-positive numeric limits, and non-HTTP(S) upstream URLs fail
+fast during startup.
+
+## ✅ Quality Gates
+
+```bash
 npm ci
 npm test
 npm run check
 ```
 
-Bộ test dùng các HTTP upstream tạm trên random port để kiểm tra route, query,
-request body, request ID, health proxy, frontend fallback, 404, 502 và payload
-limit mà không cần khởi động các service khác.
+Tests create temporary HTTP upstreams and verify path selection, query and body
+forwarding, request IDs, frontend fallback, health proxying, unavailable
+upstreams, and payload limits. `npm run check` validates JavaScript syntax.
 
-## Docker
+## 🐳 Container Image
 
-```powershell
-docker build -t api-gateway:local .
+```bash
+docker build -t nexuscart-api-gateway:local .
+docker run --rm -p 8080:8080 \
+  -e APP_VERSION=local \
+  nexuscart-api-gateway:local
 ```
 
-Container chạy non-root trên cổng `8080` và có healthcheck tại
-`/gateway-health`.
+The standalone container always exposes its own `/gateway-health`. Application
+routes require reachable upstream URLs, so Docker Compose is recommended for
+full-stack use.
 
-## Configuration
+## 🔁 CI/CD
 
-| Variable | Default |
-|---|---|
-| `PORT` | `8080` |
-| `APP_VERSION` | `1.0.0` |
-| `FRONTEND_URL` | `http://frontend:80` |
-| `USER_SERVICE_URL` | `http://user-service:8081` |
-| `CATALOG_SERVICE_URL` | `http://catalog-service:8000` |
-| `ORDER_SERVICE_URL` | `http://order-service:8083` |
-| `REQUEST_TIMEOUT_MS` | `10000` |
-| `HEALTH_TIMEOUT_MS` | `4000` |
-| `MAX_BODY_BYTES` | `1048576` |
+`azure-pipelines.yml` owns this repository's variables and composes the local
+`pipelines/stages/ci.yml`, `deploy-dev.yml`, and `deploy-prod.yml` stage
+templates. It extends only the minimal shared contract in the GitHub `devops`
+repository.
 
-## CI/CD
+- Every branch runs tests and syntax checks, builds the image, and scans it with
+  Trivy.
+- `main` publishes an immutable `$(Build.BuildId)` image to Azure Container
+  Registry and promotes it through DEV and PROD with Helm health and smoke
+  verification.
 
-`azure-pipelines.yml` reuse
-`devops/pipelines/templates/service-pipeline.yml`. Pipeline chạy test, Docker
-build và Trivy trên mọi branch; branch `main` tiếp tục push ACR, deploy DEV,
-health/smoke, approval rồi deploy PROD. Helm chart của service nằm trong
-`devops/deploy/helm/api-gateway`.
-
-## Project structure
+## 📁 Repository Structure
 
 ```text
 api-gateway/
-├── public/health.html
+├── public/health.html      # Integrated health dashboard
 ├── src/
-│   ├── gateway.js
-│   └── server.js
-├── test/gateway.test.js
+│   ├── gateway.js          # Routing, proxying, errors, and health
+│   └── server.js           # Process lifecycle and listen port
+├── test/gateway.test.js    # Gateway integration tests
+├── pipelines/stages/
+│   ├── ci.yml              # Test, build, scan, and ACR push
+│   ├── deploy-dev.yml      # DEV deploy and verification
+│   └── deploy-prod.yml     # Approval, PROD deploy, and verification
 ├── azure-pipelines.yml
 ├── Dockerfile
 ├── package.json

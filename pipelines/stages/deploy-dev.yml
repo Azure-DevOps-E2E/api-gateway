@@ -1,0 +1,73 @@
+stages:
+  - stage: Deploy_DEV
+    displayName: Deploy DEV
+    dependsOn: Push_ACR
+    condition: succeeded()
+    jobs:
+      - deployment: DeployDev
+        displayName: Helm deploy $(serviceName) to DEV
+        pool:
+          vmImage: $(vmImage)
+        environment: nexuscart-dev
+        strategy:
+          runOnce:
+            deploy:
+              steps:
+                - checkout: pipelineTemplates
+                  clean: true
+                  path: s/devops
+                - task: HelmDeploy@1
+                  displayName: Helm upgrade DEV
+                  inputs:
+                    connectionType: Azure Resource Manager
+                    azureSubscription: $(azureServiceConnection)
+                    azureResourceGroup: $(aksResourceGroup)
+                    kubernetesCluster: $(aksClusterName)
+                    namespace: dev
+                    command: upgrade
+                    chartType: FilePath
+                    chartPath: $(Pipeline.Workspace)/s/devops/deploy/helm/$(serviceName)
+                    releaseName: $(serviceName)
+                    valueFile: $(Pipeline.Workspace)/s/devops/deploy/helm/$(serviceName)/values-dev.yaml
+                    overrideValues: image.repository=$(acrLoginServer)/$(imageRepository),image.tag=$(imageTag),appVersion=$(imageTag)
+                    install: true
+                    waitForExecution: true
+                    arguments: --atomic --create-namespace --timeout 5m
+
+  - stage: Verify_DEV
+    displayName: Smoke and health DEV
+    dependsOn: Deploy_DEV
+    condition: succeeded()
+    jobs:
+      - job: VerifyDev
+        displayName: Verify integrated DEV environment
+        pool:
+          vmImage: $(vmImage)
+        steps:
+          - checkout: pipelineTemplates
+            clean: true
+            path: s/devops
+          - task: PowerShell@2
+            displayName: Wait for DEV health
+            inputs:
+              pwsh: true
+              targetType: filePath
+              filePath: $(Pipeline.Workspace)/s/devops/scripts/wait-health.ps1
+              arguments: -BaseUrl "$(devBaseUrl)" -TimeoutSeconds 300
+          - task: PowerShell@2
+            displayName: Check DEV components and deployed version
+            inputs:
+              pwsh: true
+              targetType: filePath
+              filePath: $(Pipeline.Workspace)/s/devops/scripts/health.ps1
+              arguments: >-
+                -BaseUrl "$(devBaseUrl)"
+                -ExpectedService "$(serviceName)"
+                -ExpectedVersion "$(imageTag)"
+          - task: PowerShell@2
+            displayName: Run DEV smoke test
+            inputs:
+              pwsh: true
+              targetType: filePath
+              filePath: $(Pipeline.Workspace)/s/devops/scripts/smoke.ps1
+              arguments: -BaseUrl "$(devBaseUrl)"

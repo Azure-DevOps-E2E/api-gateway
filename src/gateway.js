@@ -14,7 +14,7 @@ const DEFAULTS = Object.freeze({
   targets: Object.freeze({
     frontend: 'http://frontend:80',
     user: 'http://user-service:8081',
-    catalog: 'http://catalog-service:8000',
+    catalog: 'http://catalog-service:8082',
     order: 'http://order-service:8083'
   })
 });
