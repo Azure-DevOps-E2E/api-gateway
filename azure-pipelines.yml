@@ -1,85 +1,40 @@
 trigger:
   branches:
     include:
-      - '*'
+    - '*'
 
 pr:
   branches:
     include:
-      - '*'
+    - '*'
 
-variables:
-  - group: nexuscart-shared
-  - name: vmImage
-    value: ubuntu-latest
-  - name: serviceName
-    value: api-gateway
-  - name: imageRepository
-    value: api-gateway
-  - name: dockerfilePath
-    value: Dockerfile
-  - name: imageTag
-    value: $(Build.BuildId)
-  - name: fullImageName
-    value: $(acrLoginServer)/$(imageRepository):$(imageTag)
+resources:
+  repositories:
+  - repository: configTemplates
+    type: github
+    endpoint: github.com_Azure-DevOps-E2E
+    name: Azure-DevOps-E2E/config-management
+    ref: refs/heads/main
 
 pool:
-  vmImage: $(vmImage)
+  vmImage: ubuntu-latest
 
-steps:
-  - checkout: self
-    clean: true
+stages:
+- template: pipelines/templates/service-stages.yml@configTemplates
+  parameters:
+    serviceName: api-gateway
+    imageName: api-gateway
+    dockerfilePath: Dockerfile
+    containerRegistry: acrLoginServer
+    qualitySteps:
+    - task: NodeTool@0
+      displayName: 'Use Node.js 24'
+      inputs:
+        versionSpec: '24.x'
 
-  - task: NodeTool@0
-    displayName: Use Node.js 24
-    inputs:
-      versionSpec: 24.x
-
-  - bash: |
-      set -euo pipefail
-      npm ci
-      npm run check
-      npm test
-    displayName: Check and test
-
-  - bash: |
-      set -euo pipefail
-      docker build \
-        --file $(Build.SourcesDirectory)/$(dockerfilePath) \
-        --tag $(fullImageName) \
-        $(Build.SourcesDirectory)
-    displayName: Build Docker image
-
-  - bash: |
-      set -euo pipefail
-      mkdir -p $(Pipeline.Workspace)/.trivy-cache
-      docker run --rm \
-        --volume /var/run/docker.sock:/var/run/docker.sock \
-        --volume $(Pipeline.Workspace)/.trivy-cache:/root/.cache/ \
-        aquasec/trivy:0.72.0 \
-        image \
-        --exit-code 1 \
-        --ignore-unfixed \
-        --severity HIGH,CRITICAL \
-        $(fullImageName)
-    displayName: Scan Docker image with Trivy
-
-  - task: Docker@2
-    displayName: Login to ACR
-    condition: and(succeeded(), eq(variables['Build.SourceBranch'], 'refs/heads/main'))
-    inputs:
-      command: login
-      containerRegistry: $(acrServiceConnection)
-
-  - bash: |
-      set -euo pipefail
-      docker push $(fullImageName)
-    displayName: Push Docker image to ACR
-    condition: and(succeeded(), eq(variables['Build.SourceBranch'], 'refs/heads/main'))
-
-  - task: Docker@2
-    displayName: Logout from ACR
-    condition: and(always(), eq(variables['Build.SourceBranch'], 'refs/heads/main'))
-    inputs:
-      command: logout
-      containerRegistry: $(acrServiceConnection)
+    - bash: |
+        set -euo pipefail
+        npm ci
+        npm run check
+        npm test
+      displayName: 'Check and test'
