@@ -175,16 +175,14 @@ full-stack use.
 
 ## 🔁 CI/CD
 
-`azure-pipelines.yml` owns this repository's variables and composes the local
-`pipelines/stages/ci.yml`, `deploy-dev.yml`, and `deploy-prod.yml` stage
-templates. It extends only the minimal shared contract in the GitHub `devops`
-repository.
+`azure-pipelines.yml` is a small entry point that composes reusable checkout,
+Node setup, install, native test, report, and Qodana step templates from
+`config-management`. Shared stage and job templates own the orchestration.
 
-- Every branch runs tests and syntax checks, builds the image, and scans it with
-  Trivy.
-- `main` publishes an immutable `$(Build.BuildId)` image to Azure Container
-  Registry and promotes it through DEV and PROD with Helm health and smoke
-  verification.
+- Every branch publishes JUnit and coverage reports, runs Qodana, builds the
+  image, and scans it with Trivy.
+- `main` pushes the `$(Build.BuildId)` and `latest` tags to Azure Container
+  Registry.
 
 ## 📁 Repository Structure
 
@@ -195,10 +193,6 @@ api-gateway/
 │   ├── gateway.js          # Routing, proxying, errors, and health
 │   └── server.js           # Process lifecycle and listen port
 ├── test/gateway.test.js    # Gateway integration tests
-├── pipelines/stages/
-│   ├── ci.yml              # Test, build, scan, and ACR push
-│   ├── deploy-dev.yml      # DEV deploy and verification
-│   └── deploy-prod.yml     # Approval, PROD deploy, and verification
 ├── azure-pipelines.yml
 ├── Dockerfile
 ├── package.json

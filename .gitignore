@@ -5,6 +5,8 @@ node_modules/
 
 # Local verification artifacts
 artifacts/
+coverage/
+reports/
 
 # Editors and OS
 .idea/

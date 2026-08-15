@@ -27,14 +27,18 @@ stages:
     dockerfilePath: Dockerfile
     containerRegistry: acrLoginServer
     qualitySteps:
-    - task: NodeTool@0
-      displayName: 'Use Node.js 24'
-      inputs:
-        versionSpec: '24.x'
-
-    - bash: |
-        set -euo pipefail
-        npm ci
-        npm run check
-        npm test
-      displayName: 'Check and test'
+    - template: pipelines/templates/steps/checkout.yml@configTemplates
+    - template: pipelines/templates/steps/node/setup.yml@configTemplates
+    - template: pipelines/templates/steps/node/install.yml@configTemplates
+    - template: pipelines/templates/steps/node/native-test.yml@configTemplates
+    - template: pipelines/templates/steps/node/run-scripts.yml@configTemplates
+      parameters:
+        scripts:
+        - check
+    - template: pipelines/templates/steps/reports.yml@configTemplates
+      parameters:
+        coverageSummaryFile: '$(System.DefaultWorkingDirectory)/coverage/lcov.info'
+    - template: pipelines/templates/steps/qodana.yml@configTemplates
+      parameters:
+        linter: qodana-js
+        requiresToken: true
