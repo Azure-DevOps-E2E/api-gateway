@@ -1,4 +1,9 @@
-FROM node:24.18.0-alpine3.24
+ARG NODE_VERSION=24.19.0
+ARG ALPINE_VERSION=3.24
+
+FROM node:${NODE_VERSION}-alpine${ALPINE_VERSION} AS node-runtime
+
+FROM alpine:${ALPINE_VERSION}
 
 ENV NODE_ENV=production \
     PORT=8080 \
@@ -6,8 +11,11 @@ ENV NODE_ENV=production \
 
 WORKDIR /app
 
-COPY package.json package-lock.json ./
-RUN npm ci --omit=dev
+RUN apk add --no-cache libstdc++ \
+    && addgroup -g 1000 -S node \
+    && adduser -u 1000 -S -G node node
+
+COPY --from=node-runtime /usr/local/bin/node /usr/local/bin/node
 
 COPY --chown=node:node src ./src
 COPY --chown=node:node public ./public
