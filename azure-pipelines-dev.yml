@@ -1,0 +1,211 @@
+trigger:
+  batch: true
+  branches:
+    include:
+    - dev
+
+pr: none
+
+resources:
+  repositories:
+  - repository: templates
+    type: github
+    endpoint: github.com_Azure-DevOps-E2E
+    name: Azure-DevOps-E2E/config-management
+    ref: refs/heads/main
+
+variables:
+- group: nexuscart-shared
+- name: serviceName
+  value: 'api-gateway'
+- name: imageRepository
+  value: 'api-gateway'
+- name: dockerfilePath
+  value: '$(Build.SourcesDirectory)/Dockerfile'
+- name: buildContext
+  value: '$(Build.SourcesDirectory)'
+- name: containerRegistryServiceConnection
+  value: acrLoginServer
+- name: nodeVersion
+  value: '24.x'
+- name: testResultsFile
+  value: '$(System.DefaultWorkingDirectory)/reports/test-results.xml'
+- name: coverageSummaryFile
+  value: '$(System.DefaultWorkingDirectory)/coverage/lcov.info'
+- name: trivyVersion
+  value: '0.72.0'
+- name: candidateTag
+  value: 'candidate-$(Build.SourceVersion)'
+- name: chartRoot
+  value: '$(Pipeline.Workspace)/s/templates/deploy/helm/$(serviceName)'
+
+pool:
+  name: azure-agent
+
+extends:
+  template: pipelines/templates/pipeline-contract.yml@templates
+  parameters:
+    pipelineStages:
+    - stage: CI
+      displayName: 'CI - $(serviceName)'
+      jobs:
+      - job: Quality
+        displayName: 'Test and build $(serviceName)'
+        steps:
+        - checkout: self
+          clean: true
+          fetchDepth: 1
+          displayName: 'Checkout source code'
+
+        - task: NodeTool@0
+          displayName: 'Use Node.js $(nodeVersion)'
+          inputs:
+            versionSpec: '$(nodeVersion)'
+
+        - template: steps/node/install.yml@templates
+
+        - template: steps/node/native-test.yml@templates
+          parameters:
+            testResultsFile: reports/test-results.xml
+            coverageFile: coverage/lcov.info
+
+        - template: steps/node/run-scripts.yml@templates
+          parameters:
+            scripts:
+            - check
+
+        - task: PublishTestResults@2
+          displayName: 'Publish test report'
+          condition: succeededOrFailed()
+          inputs:
+            testResultsFormat: JUnit
+            testResultsFiles: '$(testResultsFile)'
+            searchFolder: '$(System.DefaultWorkingDirectory)'
+            mergeTestResults: true
+            failTaskOnFailedTests: true
+            failTaskOnFailureToPublishResults: true
+            failTaskOnMissingResultsFile: true
+            testRunTitle: '$(serviceName) tests'
+
+        - task: PublishCodeCoverageResults@2
+          displayName: 'Publish coverage report'
+          condition: succeededOrFailed()
+          inputs:
+            summaryFileLocation: '$(coverageSummaryFile)'
+            pathToSources: '$(Build.SourcesDirectory)'
+            failIfCoverageEmpty: true
+
+    - stage: BuildCandidate
+      displayName: 'Build candidate - $(serviceName)'
+      dependsOn: CI
+      condition: and(succeeded(), eq(variables['Build.SourceBranch'], 'refs/heads/dev'))
+      jobs:
+      - job: BuildImage
+        displayName: 'Build, scan, and push DEV candidate'
+        steps:
+        - checkout: self
+          clean: true
+          fetchDepth: 1
+          displayName: 'Checkout source code'
+
+        - task: Docker@2
+          displayName: 'Build candidate image'
+          inputs:
+            command: build
+            containerRegistry: '$(containerRegistryServiceConnection)'
+            repository: '$(imageRepository)'
+            dockerfile: '$(dockerfilePath)'
+            buildContext: '$(buildContext)'
+            tags: |
+              $(candidateTag)
+              dev
+
+        - template: steps/container/scan.yml@templates
+          parameters:
+            scanImage: '$(acrLoginServer)/$(imageRepository):$(candidateTag)'
+            trivyVersion: '$(trivyVersion)'
+
+        - task: Docker@2
+          displayName: 'Push candidate image'
+          inputs:
+            command: push
+            containerRegistry: '$(containerRegistryServiceConnection)'
+            repository: '$(imageRepository)'
+            tags: |
+              $(candidateTag)
+              dev
+
+    - stage: DeployDev
+      displayName: 'Deploy DEV - $(serviceName)'
+      dependsOn: BuildCandidate
+      condition: succeeded()
+      jobs:
+      - deployment: DeployDev
+        displayName: 'Deploy candidate to DEV'
+        environment: Development
+        strategy:
+          runOnce:
+            deploy:
+              steps:
+              - checkout: templates
+                clean: true
+                path: s/templates
+                displayName: 'Checkout deployment templates'
+
+              - task: HelmDeploy@1
+                displayName: 'Helm upgrade DEV'
+                inputs:
+                  connectionType: 'Azure Resource Manager'
+                  azureSubscription: '$(azureServiceConnection)'
+                  azureResourceGroup: '$(aksResourceGroup)'
+                  kubernetesCluster: '$(aksClusterName)'
+                  namespace: dev
+                  command: upgrade
+                  chartType: FilePath
+                  chartPath: '$(chartRoot)'
+                  releaseName: '$(serviceName)'
+                  valueFile: '$(chartRoot)/values-dev.yaml'
+                  overrideValues: |
+                    image.repository=$(acrLoginServer)/$(imageRepository)
+                    image.tag=$(candidateTag)
+                    appVersion=$(candidateTag)
+                  install: true
+                  waitForExecution: true
+                  arguments: '--atomic --create-namespace --timeout 10m'
+
+    - stage: VerifyDev
+      displayName: 'Verify DEV - $(serviceName)'
+      dependsOn: DeployDev
+      condition: succeeded()
+      jobs:
+      - job: VerifyDev
+        displayName: 'Health and smoke test DEV'
+        steps:
+        - checkout: templates
+          clean: true
+          path: s/templates
+          displayName: 'Checkout verification scripts'
+
+        - task: PowerShell@2
+          displayName: 'Wait for DEV health'
+          inputs:
+            targetType: filePath
+            filePath: '$(Pipeline.Workspace)/s/templates/scripts/wait-health.ps1'
+            arguments: '-BaseUrl "$(devBaseUrl)" -TimeoutSeconds 300 -IntervalSeconds 10'
+            pwsh: true
+
+        - task: PowerShell@2
+          displayName: 'Verify DEV version'
+          inputs:
+            targetType: filePath
+            filePath: '$(Pipeline.Workspace)/s/templates/scripts/health.ps1'
+            arguments: '-BaseUrl "$(devBaseUrl)" -ExpectedService "$(serviceName)" -ExpectedVersion "$(candidateTag)"'
+            pwsh: true
+
+        - task: PowerShell@2
+          displayName: 'Run DEV smoke test'
+          inputs:
+            targetType: filePath
+            filePath: '$(Pipeline.Workspace)/s/templates/scripts/smoke.ps1'
+            arguments: '-BaseUrl "$(devBaseUrl)"'
+            pwsh: true
