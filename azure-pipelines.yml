@@ -18,8 +18,6 @@ resources:
 
 variables:
 - group: nexuscart-shared
-- name: vmImage
-  value: ubuntu-latest
 - name: serviceName
   value: 'api-gateway'
 - name: imageRepository
@@ -48,7 +46,7 @@ variables:
   value: '$(Pipeline.Workspace)/s/templates/deploy/helm/$(serviceName)'
 
 pool:
-  vmImage: '$(vmImage)'
+  name: azure-agent
 
 extends:
   template: pipelines/templates/pipeline-contract.yml@templates
