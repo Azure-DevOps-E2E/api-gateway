@@ -4,7 +4,12 @@ trigger:
     include:
     - feature/*
 
-pr: none
+pr:
+  autoCancel: true
+  branches:
+    include:
+    - dev
+    - main
 
 resources:
   repositories:
