@@ -24,8 +24,6 @@ variables:
   value: '$(Build.SourcesDirectory)/Dockerfile'
 - name: buildContext
   value: '$(Build.SourcesDirectory)'
-- name: containerRegistryServiceConnection
-  value: acrLoginServer
 - name: nodeVersion
   value: '24.x'
 - name: testResultsFile
@@ -36,8 +34,6 @@ variables:
   value: '0.72.0'
 - name: candidateTag
   value: 'candidate-$(Build.SourceVersion)'
-- name: chartRoot
-  value: '$(Pipeline.Workspace)/s/templates/deploy/helm/$(serviceName)'
 
 pool:
   name: azure-agent
@@ -112,7 +108,7 @@ extends:
           displayName: 'Build candidate image'
           inputs:
             command: build
-            containerRegistry: '$(containerRegistryServiceConnection)'
+            containerRegistry: 'acrLoginServer'
             repository: '$(imageRepository)'
             dockerfile: '$(dockerfilePath)'
             buildContext: '$(buildContext)'
@@ -129,19 +125,21 @@ extends:
           displayName: 'Push candidate image'
           inputs:
             command: push
-            containerRegistry: '$(containerRegistryServiceConnection)'
+            containerRegistry: 'acrLoginServer'
             repository: '$(imageRepository)'
             tags: |
               $(candidateTag)
               dev
 
-    - stage: DeployDev
-      displayName: 'Deploy DEV - $(serviceName)'
+    # Direct AKS deployment and runtime verification stay disabled until the
+    # cluster and public endpoints are provisioned.
+    - stage: UpdateManifest
+      displayName: 'Update DEV manifest - $(serviceName)'
       dependsOn: BuildCandidate
       condition: succeeded()
       jobs:
-      - deployment: DeployDev
-        displayName: 'Deploy candidate to DEV'
+      - deployment: UpdateManifest
+        displayName: 'Commit candidate tag to DEV values'
         environment: Development
         strategy:
           runOnce:
@@ -149,63 +147,21 @@ extends:
               steps:
               - checkout: templates
                 clean: true
+                fetchDepth: 0
+                persistCredentials: true
                 path: s/templates
-                displayName: 'Checkout deployment templates'
+                displayName: 'Checkout writable config repository'
 
-              - task: HelmDeploy@1
-                displayName: 'Helm upgrade DEV'
+              - task: PowerShell@2
+                name: updateManifest
+                displayName: 'Update and push DEV manifest'
                 inputs:
-                  connectionType: 'Azure Resource Manager'
-                  azureSubscription: '$(azureServiceConnection)'
-                  azureResourceGroup: '$(aksResourceGroup)'
-                  kubernetesCluster: '$(aksClusterName)'
-                  namespace: dev
-                  command: upgrade
-                  chartType: FilePath
-                  chartPath: '$(chartRoot)'
-                  releaseName: '$(serviceName)'
-                  valueFile: '$(chartRoot)/values-dev.yaml'
-                  overrideValues: |
-                    image.repository=$(acrLoginServer)/$(imageRepository)
-                    image.tag=$(candidateTag)
-                    appVersion=$(candidateTag)
-                  install: true
-                  waitForExecution: true
-                  arguments: '--atomic --create-namespace --timeout 10m'
-
-    - stage: VerifyDev
-      displayName: 'Verify DEV - $(serviceName)'
-      dependsOn: DeployDev
-      condition: succeeded()
-      jobs:
-      - job: VerifyDev
-        displayName: 'Health and smoke test DEV'
-        steps:
-        - checkout: templates
-          clean: true
-          path: s/templates
-          displayName: 'Checkout verification scripts'
-
-        - task: PowerShell@2
-          displayName: 'Wait for DEV health'
-          inputs:
-            targetType: filePath
-            filePath: '$(Pipeline.Workspace)/s/templates/scripts/wait-health.ps1'
-            arguments: '-BaseUrl "$(devBaseUrl)" -TimeoutSeconds 300 -IntervalSeconds 10'
-            pwsh: true
-
-        - task: PowerShell@2
-          displayName: 'Verify DEV version'
-          inputs:
-            targetType: filePath
-            filePath: '$(Pipeline.Workspace)/s/templates/scripts/health.ps1'
-            arguments: '-BaseUrl "$(devBaseUrl)" -ExpectedService "$(serviceName)" -ExpectedVersion "$(candidateTag)"'
-            pwsh: true
-
-        - task: PowerShell@2
-          displayName: 'Run DEV smoke test'
-          inputs:
-            targetType: filePath
-            filePath: '$(Pipeline.Workspace)/s/templates/scripts/smoke.ps1'
-            arguments: '-BaseUrl "$(devBaseUrl)"'
-            pwsh: true
+                  targetType: filePath
+                  filePath: '$(Pipeline.Workspace)/s/templates/scripts/update-manifest.ps1'
+                  arguments: >-
+                    -ServiceName "$(serviceName)"
+                    -Environment dev
+                    -Registry "$(acrLoginServer)"
+                    -ImageTag "$(candidateTag)"
+                    -RepositoryRoot "$(Pipeline.Workspace)/s/templates"
+                  pwsh: true

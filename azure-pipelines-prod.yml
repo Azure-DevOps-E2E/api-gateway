@@ -20,10 +20,6 @@ variables:
   value: 'api-gateway'
 - name: imageRepository
   value: 'api-gateway'
-- name: containerRegistryServiceConnection
-  value: acrLoginServer
-- name: githubReleaseConnection
-  value: github.com_Azure-DevOps-E2E
 - name: nodeVersion
   value: '24.x'
 - name: testResultsFile
@@ -32,8 +28,6 @@ variables:
   value: '$(System.DefaultWorkingDirectory)/coverage/lcov.info'
 - name: releaseTag
   value: 'v1.0.$(Build.BuildId)'
-- name: chartRoot
-  value: '$(Pipeline.Workspace)/s/templates/deploy/helm/$(serviceName)'
 
 pool:
   name: azure-agent
@@ -124,7 +118,7 @@ extends:
           displayName: 'Sign in to ACR'
           inputs:
             command: login
-            containerRegistry: '$(containerRegistryServiceConnection)'
+            containerRegistry: 'acrLoginServer'
 
         - template: steps/container/promote.yml@templates
           parameters:
@@ -138,15 +132,17 @@ extends:
           condition: always()
           inputs:
             command: logout
-            containerRegistry: '$(containerRegistryServiceConnection)'
+            containerRegistry: 'acrLoginServer'
 
-    - stage: DeployProd
-      displayName: 'Deploy PROD - $(serviceName)'
+    # Updating the Production manifest is the deployment boundary while direct
+    # AKS deployment and runtime verification remain disabled.
+    - stage: UpdateManifest
+      displayName: 'Update PROD manifest - $(serviceName)'
       dependsOn: PromoteImage
       condition: succeeded()
       jobs:
-      - deployment: DeployProd
-        displayName: 'Deploy promoted image to PROD'
+      - deployment: UpdateManifest
+        displayName: 'Commit release tag to PROD values'
         environment: Production
         strategy:
           runOnce:
@@ -154,71 +150,29 @@ extends:
               steps:
               - checkout: templates
                 clean: true
+                fetchDepth: 0
+                persistCredentials: true
                 path: s/templates
-                displayName: 'Checkout deployment templates'
+                displayName: 'Checkout writable config repository'
 
-              - task: HelmDeploy@1
-                displayName: 'Helm upgrade PROD'
+              - task: PowerShell@2
+                name: updateManifest
+                displayName: 'Update and push PROD manifest'
                 inputs:
-                  connectionType: 'Azure Resource Manager'
-                  azureSubscription: '$(azureServiceConnection)'
-                  azureResourceGroup: '$(aksResourceGroup)'
-                  kubernetesCluster: '$(aksClusterName)'
-                  namespace: prod
-                  command: upgrade
-                  chartType: FilePath
-                  chartPath: '$(chartRoot)'
-                  releaseName: '$(serviceName)'
-                  valueFile: '$(chartRoot)/values-prod.yaml'
-                  overrideValues: |
-                    image.repository=$(acrLoginServer)/$(imageRepository)
-                    image.tag=$(releaseTag)
-                    appVersion=$(releaseTag)
-                  install: true
-                  waitForExecution: true
-                  arguments: '--atomic --create-namespace --timeout 10m'
-
-    - stage: VerifyProd
-      displayName: 'Verify PROD - $(serviceName)'
-      dependsOn: DeployProd
-      condition: succeeded()
-      jobs:
-      - job: VerifyProd
-        displayName: 'Health and smoke test PROD'
-        steps:
-        - checkout: templates
-          clean: true
-          path: s/templates
-          displayName: 'Checkout verification scripts'
-
-        - task: PowerShell@2
-          displayName: 'Wait for PROD health'
-          inputs:
-            targetType: filePath
-            filePath: '$(Pipeline.Workspace)/s/templates/scripts/wait-health.ps1'
-            arguments: '-BaseUrl "$(prodBaseUrl)" -TimeoutSeconds 300 -IntervalSeconds 10'
-            pwsh: true
-
-        - task: PowerShell@2
-          displayName: 'Verify PROD version'
-          inputs:
-            targetType: filePath
-            filePath: '$(Pipeline.Workspace)/s/templates/scripts/health.ps1'
-            arguments: '-BaseUrl "$(prodBaseUrl)" -ExpectedService "$(serviceName)" -ExpectedVersion "$(releaseTag)"'
-            pwsh: true
-
-        - task: PowerShell@2
-          displayName: 'Run PROD smoke test'
-          inputs:
-            targetType: filePath
-            filePath: '$(Pipeline.Workspace)/s/templates/scripts/smoke.ps1'
-            arguments: '-BaseUrl "$(prodBaseUrl)"'
-            pwsh: true
+                  targetType: filePath
+                  filePath: '$(Pipeline.Workspace)/s/templates/scripts/update-manifest.ps1'
+                  arguments: >-
+                    -ServiceName "$(serviceName)"
+                    -Environment prod
+                    -Registry "$(acrLoginServer)"
+                    -ImageTag "$(releaseTag)"
+                    -RepositoryRoot "$(Pipeline.Workspace)/s/templates"
+                  pwsh: true
 
     - stage: Release
       displayName: 'GitHub release - $(serviceName)'
       dependsOn:
-      - VerifyProd
+      - UpdateManifest
       - PromoteImage
       - ResolveCandidate
       condition: succeeded()
@@ -236,7 +190,7 @@ extends:
         - task: GitHubRelease@1
           displayName: 'Create $(releaseTag)'
           inputs:
-            gitHubConnection: '$(githubReleaseConnection)'
+            gitHubConnection: 'github.com_Azure-DevOps-E2E'
             repositoryName: '$(Build.Repository.Name)'
             action: create
             target: '$(Build.SourceVersion)'
@@ -245,12 +199,13 @@ extends:
             title: '$(serviceName) $(releaseTag)'
             releaseNotesSource: inline
             releaseNotesInline: |
-              Production deployment completed successfully.
+              Production manifest update completed successfully.
 
-              - Image: `$(acrLoginServer)/$(imageRepository):$(releaseTag)`
-              - Digest: `$(promotedImageDigest)`
-              - DEV candidate commit: `$(candidateSourceVersion)`
-              - PROD commit: `$(Build.SourceVersion)`
+              - Image: $(acrLoginServer)/$(imageRepository):$(releaseTag)
+              - Digest: $(promotedImageDigest)
+              - DEV candidate commit: $(candidateSourceVersion)
+              - PROD commit: $(Build.SourceVersion)
+              - Manifest: config-management/deploy/helm/$(serviceName)/values-prod.yaml
             isDraft: false
             isPreRelease: false
             makeLatest: true
