@@ -174,19 +174,16 @@ extends:
                 path: s/templates
                 displayName: 'Checkout writable config repository'
 
-              - task: PowerShell@2
+              - bash: |
+                  set -euo pipefail
+                  bash "$(Pipeline.Workspace)/s/templates/scripts/update-manifest.sh" \
+                    --service-name "$(serviceName)" \
+                    --environment prod \
+                    --registry "$(acrLoginServer)" \
+                    --image-tag "$(releaseTag)" \
+                    --repository-root "$(Pipeline.Workspace)/s/templates"
                 name: updateManifest
                 displayName: 'Update and push PROD manifest'
-                inputs:
-                  targetType: filePath
-                  filePath: '$(Pipeline.Workspace)/s/templates/scripts/update-manifest.ps1'
-                  arguments: >-
-                    -ServiceName "$(serviceName)"
-                    -Environment prod
-                    -Registry "$(acrLoginServer)"
-                    -ImageTag "$(releaseTag)"
-                    -RepositoryRoot "$(Pipeline.Workspace)/s/templates"
-                  pwsh: true
 
     - stage: Release
       displayName: 'GitHub release - $(serviceName)'

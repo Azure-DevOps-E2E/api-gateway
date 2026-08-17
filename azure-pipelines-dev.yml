@@ -171,16 +171,13 @@ extends:
                 path: s/templates
                 displayName: 'Checkout writable config repository'
 
-              - task: PowerShell@2
+              - bash: |
+                  set -euo pipefail
+                  bash "$(Pipeline.Workspace)/s/templates/scripts/update-manifest.sh" \
+                    --service-name "$(serviceName)" \
+                    --environment dev \
+                    --registry "$(acrLoginServer)" \
+                    --image-tag "$(candidateTag)" \
+                    --repository-root "$(Pipeline.Workspace)/s/templates"
                 name: updateManifest
                 displayName: 'Update and push DEV manifest'
-                inputs:
-                  targetType: filePath
-                  filePath: '$(Pipeline.Workspace)/s/templates/scripts/update-manifest.ps1'
-                  arguments: >-
-                    -ServiceName "$(serviceName)"
-                    -Environment dev
-                    -Registry "$(acrLoginServer)"
-                    -ImageTag "$(candidateTag)"
-                    -RepositoryRoot "$(Pipeline.Workspace)/s/templates"
-                  pwsh: true
