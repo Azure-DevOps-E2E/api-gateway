@@ -47,22 +47,34 @@ extends:
           fetchDepth: 1
           displayName: 'Checkout source code'
 
-        - task: NodeTool@0
-          displayName: 'Use Node.js $(nodeVersion)'
-          inputs:
-            versionSpec: '$(nodeVersion)'
+        # Host Node.js setup is kept commented for rollback. Quality now runs in Docker.
+        # - task: NodeTool@0
+        #   displayName: 'Use Node.js $(nodeVersion)'
+        #   inputs:
+        #     versionSpec: '$(nodeVersion)'
+        #
+        # - template: steps/node/install.yml@templates
+        #
+        # - template: steps/node/native-test.yml@templates
+        #   parameters:
+        #     testResultsFile: reports/test-results.xml
+        #     coverageFile: coverage/lcov.info
+        #
+        # - template: steps/node/run-scripts.yml@templates
+        #   parameters:
+        #     scripts:
+        #     - check
 
-        - template: steps/node/install.yml@templates
-
-        - template: steps/node/native-test.yml@templates
+        - template: steps/container/prepare-build-image.yml@templates
           parameters:
+            runtime: node
+            version: '$(nodeVersion)'
+
+        - template: steps/node/native-quality-container.yml@templates
+          parameters:
+            cacheKey: '$(serviceName)-node$(nodeVersion)'
             testResultsFile: reports/test-results.xml
             coverageFile: coverage/lcov.info
-
-        - template: steps/node/run-scripts.yml@templates
-          parameters:
-            scripts:
-            - check
 
         - task: PublishTestResults@2
           displayName: 'Publish test report'
@@ -76,6 +88,13 @@ extends:
             failTaskOnFailureToPublishResults: true
             failTaskOnMissingResultsFile: true
             testRunTitle: '$(serviceName) tests'
+
+        - task: UseDotNet@2
+          displayName: 'Use .NET SDK for coverage publisher'
+          condition: succeededOrFailed()
+          inputs:
+            packageType: sdk
+            version: '8.x'
 
         - task: PublishCodeCoverageResults@2
           displayName: 'Publish coverage report'
