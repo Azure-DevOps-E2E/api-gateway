@@ -148,7 +148,7 @@ extends:
       jobs:
       - deployment: DeployDev
         displayName: 'Deploy candidate to DEV'
-        environment: nexuscart-dev
+        environment: Development
         strategy:
           runOnce:
             deploy:
@@ -272,7 +272,7 @@ extends:
       jobs:
       - deployment: DeployProd
         displayName: 'Deploy promoted image to PROD'
-        environment: nexuscart-prod
+        environment: Production
         strategy:
           runOnce:
             deploy:
