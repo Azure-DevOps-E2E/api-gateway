@@ -6,6 +6,12 @@ trigger:
 
 pr: none
 
+parameters:
+- name: releaseTag
+  displayName: 'Release Git tag'
+  type: string
+  default: 'v1.0.$(Build.BuildId)'
+
 resources:
   repositories:
   - repository: templates
@@ -27,7 +33,7 @@ variables:
 - name: coverageSummaryFile
   value: '$(System.DefaultWorkingDirectory)/coverage/lcov.info'
 - name: releaseTag
-  value: 'v1.0.$(Build.BuildId)'
+  value: ${{ parameters.releaseTag }}
 
 pool:
   name: azure-agent
@@ -133,6 +139,14 @@ extends:
         steps:
         - checkout: none
 
+        - bash: |
+            set -euo pipefail
+            if [[ ! "$(releaseTag)" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+              echo "releaseTag must match v<major>.<minor>.<patch>, for example v1.0.119"
+              exit 1
+            fi
+          displayName: 'Validate release tag'
+
         - task: Docker@2
           displayName: 'Sign in to ACR'
           inputs:
@@ -201,30 +215,60 @@ extends:
       - job: GitHubRelease
         displayName: 'Create Git tag and GitHub Release'
         steps:
-        - checkout: none
+        - checkout: self
+          clean: true
+          fetchDepth: 0
+          persistCredentials: true
+          displayName: 'Checkout source for release tagging'
 
-        - task: GitHubRelease@1
-          displayName: 'Create $(releaseTag)'
-          inputs:
-            gitHubConnection: 'github.com_Azure-DevOps-E2E'
-            repositoryName: '$(Build.Repository.Name)'
-            action: create
-            target: '$(Build.SourceVersion)'
-            tagSource: userSpecifiedTag
-            tag: '$(releaseTag)'
-            title: '$(serviceName) $(releaseTag)'
-            releaseNotesSource: inline
-            releaseNotesInline: |
-              Production manifest update completed successfully.
+        - bash: |
+            set -euo pipefail
 
-              - Image: $(acrLoginServer)/$(imageRepository):$(releaseTag)
-              - Digest: $(promotedImageDigest)
-              - DEV candidate commit: $(candidateSourceVersion)
-              - PROD commit: $(Build.SourceVersion)
-              - Manifest: config-management/deploy/helm/$(serviceName)/values-prod.yaml
-            isDraft: false
-            isPreRelease: false
-            makeLatest: true
-            addChangeLog: true
-            changeLogCompareToRelease: lastFullRelease
-            changeLogType: commitBased
+            git config user.name 'azure-pipelines[bot]'
+            git config user.email 'azure-pipelines@users.noreply.github.com'
+
+            if git ls-remote --exit-code --tags origin "refs/tags/$(releaseTag)" >/dev/null 2>&1; then
+              echo "Tag $(releaseTag) already exists on origin"
+              exit 1
+            fi
+
+            git tag -a "$(releaseTag)" "$(Build.SourceVersion)" -m "$(serviceName) $(releaseTag)"
+            git push origin "refs/tags/$(releaseTag)"
+
+            auth_header="`git config --get-all http.https://github.com/.extraheader | sed -n 's/^AUTHORIZATION: //Ip' | tail -n 1`"
+            if [[ -z "$auth_header" ]]; then
+              auth_header="`git config --get-all http.https://github.com.extraheader | sed -n 's/^AUTHORIZATION: //Ip' | tail -n 1`"
+            fi
+            if [[ -z "$auth_header" ]]; then
+              echo 'Unable to find persisted GitHub checkout credentials for release creation'
+              exit 1
+            fi
+
+            cat > release-payload.json <<EOF
+            {
+              "tag_name": "$(releaseTag)",
+              "target_commitish": "$(Build.SourceVersion)",
+              "name": "$(serviceName) $(releaseTag)",
+              "body": "Production manifest update completed successfully.\n\n- Image: $(acrLoginServer)/$(imageRepository):$(releaseTag)\n- Digest: $(promotedImageDigest)\n- DEV candidate commit: $(candidateSourceVersion)\n- PROD commit: $(Build.SourceVersion)\n- Manifest: config-management/deploy/helm/$(serviceName)/values-prod.yaml",
+              "draft": false,
+              "prerelease": false,
+              "make_latest": "true"
+            }
+            EOF
+
+            status="`curl -sS -o release-response.json -w '%{http_code}' \
+              -X POST \
+              -H "Authorization: $auth_header" \
+              -H 'Accept: application/vnd.github+json' \
+              -H 'X-GitHub-Api-Version: 2022-11-28' \
+              "https://api.github.com/repos/$(Build.Repository.Name)/releases" \
+              --data-binary @release-payload.json`"
+
+            if [[ "$status" != '201' ]]; then
+              echo "GitHub Release creation failed with HTTP $status"
+              cat release-response.json
+              exit 1
+            fi
+
+            echo "Created Git tag and GitHub Release $(releaseTag)"
+          displayName: 'Create Git tag and GitHub Release'
