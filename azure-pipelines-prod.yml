@@ -126,9 +126,41 @@ extends:
 
         - template: steps/container/resolve-candidate.yml@templates
 
+    - stage: ValidateReleaseTag
+      displayName: 'Validate release tag - $(serviceName)'
+      dependsOn: ResolveCandidate
+      condition: and(succeeded(), eq(dependencies.ResolveCandidate.outputs['Resolve.resolveCandidate.shouldPromote'], 'true'))
+      jobs:
+      - job: ValidateTag
+        displayName: 'Require an existing release Git tag'
+        steps:
+        - checkout: self
+          clean: true
+          fetchDepth: 1
+          persistCredentials: true
+          displayName: 'Checkout source for tag validation'
+
+        - bash: |
+            set -euo pipefail
+
+            if [[ ! "$(releaseTag)" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+              echo "releaseTag must match v<major>.<minor>.<patch>, for example v1.0.119"
+              exit 1
+            fi
+
+            if ! git ls-remote --exit-code --tags origin "refs/tags/$(releaseTag)" >/dev/null 2>&1; then
+              echo "Release tag $(releaseTag) does not exist on origin."
+              echo "Create the Git tag first, then rerun this pipeline with that existing releaseTag."
+              exit 1
+            fi
+
+            echo "Using existing Git tag $(releaseTag) for promotion."
+          displayName: 'Validate existing release tag'
     - stage: PromoteImage
       displayName: 'Promote image - $(serviceName)'
-      dependsOn: ResolveCandidate
+      dependsOn:
+      - ResolveCandidate
+      - ValidateReleaseTag
       condition: and(succeeded(), eq(dependencies.ResolveCandidate.outputs['Resolve.resolveCandidate.shouldPromote'], 'true'))
       variables:
       - name: candidateSourceVersion
@@ -213,27 +245,21 @@ extends:
         value: $[ stageDependencies.ResolveCandidate.Resolve.outputs['resolveCandidate.candidateSourceVersion'] ]
       jobs:
       - job: GitHubRelease
-        displayName: 'Create Git tag and GitHub Release'
+        displayName: 'Create GitHub Release'
         steps:
         - checkout: self
           clean: true
           fetchDepth: 0
           persistCredentials: true
-          displayName: 'Checkout source for release tagging'
+          displayName: 'Checkout source for release creation'
 
         - bash: |
             set -euo pipefail
 
-            git config user.name 'azure-pipelines[bot]'
-            git config user.email 'azure-pipelines@users.noreply.github.com'
-
-            if git ls-remote --exit-code --tags origin "refs/tags/$(releaseTag)" >/dev/null 2>&1; then
-              echo "Tag $(releaseTag) already exists on origin"
+            if ! git ls-remote --exit-code --tags origin "refs/tags/$(releaseTag)" >/dev/null 2>&1; then
+              echo "Release tag $(releaseTag) no longer exists on origin. Rerun with an existing releaseTag."
               exit 1
             fi
-
-            git tag -a "$(releaseTag)" "$(Build.SourceVersion)" -m "$(serviceName) $(releaseTag)"
-            git push origin "refs/tags/$(releaseTag)"
 
             auth_header="`git config --get-all http.https://github.com/.extraheader | sed -n 's/^AUTHORIZATION: //Ip' | tail -n 1`"
             if [[ -z "$auth_header" ]]; then
@@ -270,5 +296,5 @@ extends:
               exit 1
             fi
 
-            echo "Created Git tag and GitHub Release $(releaseTag)"
-          displayName: 'Create Git tag and GitHub Release'
+            echo "Created GitHub Release $(releaseTag)"
+          displayName: 'Create GitHub Release'
