@@ -20,6 +20,7 @@ resources:
     ref: refs/heads/main
 
 variables:
+- group: api-gateway
 - name: serviceName
   value: 'api-gateway'
 - name: nodeVersion
@@ -44,41 +45,34 @@ extends:
         steps:
         - checkout: self
           clean: true
-          fetchDepth: 1
+          fetchDepth: 0
           displayName: 'Checkout source code'
 
-        # Host Node.js setup is kept commented for rollback. Quality now runs in Docker.
-        # - task: NodeTool@0
-        #   displayName: 'Use Node.js $(nodeVersion)'
-        #   inputs:
-        #     versionSpec: '$(nodeVersion)'
-        #
-        # - template: steps/node/install.yml@templates
-        #
-        # - template: steps/node/native-test.yml@templates
-        #   parameters:
-        #     testResultsFile: reports/test-results.xml
-        #     coverageFile: coverage/lcov.info
-        #
-        # - template: steps/node/run-scripts.yml@templates
-        #   parameters:
-        #     scripts:
-        #     - check
+        - template: steps/detect-changes.yml@templates
+          parameters:
+            targetBranch: 'main'
+
+        - template: steps/security-scan.yml@templates
+          parameters:
+            runtime: node
+          condition: and(succeeded(), eq(variables['detect.skipHeavyCI'], 'false'))
 
         - template: steps/container/prepare-build-image.yml@templates
           parameters:
             runtime: node
             version: '$(nodeVersion)'
+          condition: and(succeeded(), eq(variables['detect.skipHeavyCI'], 'false'))
 
         - template: steps/node/native-quality-container.yml@templates
           parameters:
             cacheKey: '$(serviceName)-node$(nodeVersion)'
             testResultsFile: reports/test-results.xml
             coverageFile: coverage/lcov.info
+          condition: and(succeeded(), eq(variables['detect.skipHeavyCI'], 'false'))
 
         - task: PublishTestResults@2
           displayName: 'Publish test report'
-          condition: succeededOrFailed()
+          condition: and(succeededOrFailed(), eq(variables['detect.skipHeavyCI'], 'false'))
           inputs:
             testResultsFormat: JUnit
             testResultsFiles: '$(testResultsFile)'
@@ -91,15 +85,26 @@ extends:
 
         - task: UseDotNet@2
           displayName: 'Use .NET SDK for coverage publisher'
-          condition: succeededOrFailed()
+          condition: and(succeededOrFailed(), eq(variables['detect.skipHeavyCI'], 'false'))
           inputs:
             packageType: sdk
             version: '8.x'
 
         - task: PublishCodeCoverageResults@2
           displayName: 'Publish coverage report'
-          condition: succeededOrFailed()
+          condition: and(succeededOrFailed(), eq(variables['detect.skipHeavyCI'], 'false'))
           inputs:
             summaryFileLocation: '$(coverageSummaryFile)'
             pathToSources: '$(Build.SourcesDirectory)'
             failIfCoverageEmpty: true
+
+        - template: steps/qodana-scan.yml@templates
+          parameters:
+            linter: 'jetbrains/qodana-js'
+          condition: and(succeeded(), eq(variables['detect.skipHeavyCI'], 'false'))
+
+        - template: steps/qodana-quality-gate.yml@templates
+          parameters:
+            failThreshold: 0
+            failOnCritical: true
+          condition: and(succeeded(), eq(variables['detect.skipHeavyCI'], 'false'))
