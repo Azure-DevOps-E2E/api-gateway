@@ -140,22 +140,10 @@ extends:
           persistCredentials: true
           displayName: 'Checkout source for tag validation'
 
-        - bash: |
-            set -euo pipefail
-
-            if [[ ! "$(releaseTag)" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-              echo "releaseTag must match v<major>.<minor>.<patch>, for example v1.0.119"
-              exit 1
-            fi
-
-            if ! git ls-remote --exit-code --tags origin "refs/tags/$(releaseTag)" >/dev/null 2>&1; then
-              echo "Release tag $(releaseTag) does not exist on origin."
-              echo "Create the Git tag first, then rerun this pipeline with that existing releaseTag."
-              exit 1
-            fi
-
-            echo "Using existing Git tag $(releaseTag) for promotion."
-          displayName: 'Validate existing release tag'
+        - template: steps/validate-release-tag.yml@templates
+          parameters:
+            releaseTag: '$(releaseTag)'
+            autoCreate: true
     - stage: PromoteImage
       displayName: 'Promote image - $(serviceName)'
       dependsOn:
