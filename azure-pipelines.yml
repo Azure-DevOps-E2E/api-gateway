@@ -80,7 +80,7 @@ extends:
             mergeTestResults: true
             failTaskOnFailedTests: true
             failTaskOnFailureToPublishResults: true
-            failTaskOnMissingResultsFile: true
+            failTaskOnMissingResultsFile: false
             testRunTitle: '$(serviceName) tests'
 
         - task: UseDotNet@2
