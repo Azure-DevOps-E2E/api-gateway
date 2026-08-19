@@ -55,20 +55,20 @@ extends:
         - template: steps/security-scan.yml@templates
           parameters:
             runtime: node
-          condition: and(succeeded(), eq(variables['detect.skipHeavyCI'], 'false'))
+            condition: and(succeeded(), eq(variables['detect.skipHeavyCI'], 'false'))
 
         - template: steps/container/prepare-build-image.yml@templates
           parameters:
             runtime: node
             version: '$(nodeVersion)'
-          condition: and(succeeded(), eq(variables['detect.skipHeavyCI'], 'false'))
+            condition: and(succeeded(), eq(variables['detect.skipHeavyCI'], 'false'))
 
         - template: steps/node/native-quality-container.yml@templates
           parameters:
             cacheKey: '$(serviceName)-node$(nodeVersion)'
             testResultsFile: reports/test-results.xml
             coverageFile: coverage/lcov.info
-          condition: and(succeeded(), eq(variables['detect.skipHeavyCI'], 'false'))
+            condition: and(succeeded(), eq(variables['detect.skipHeavyCI'], 'false'))
 
         - task: PublishTestResults@2
           displayName: 'Publish test report'
@@ -101,10 +101,10 @@ extends:
         - template: steps/qodana-scan.yml@templates
           parameters:
             linter: 'jetbrains/qodana-js'
-          condition: and(succeeded(), eq(variables['detect.skipHeavyCI'], 'false'))
+            condition: and(succeeded(), eq(variables['detect.skipHeavyCI'], 'false'))
 
         - template: steps/qodana-quality-gate.yml@templates
           parameters:
             failThreshold: 0
             failOnCritical: true
-          condition: and(succeeded(), eq(variables['detect.skipHeavyCI'], 'false'))
+            condition: and(succeeded(), eq(variables['detect.skipHeavyCI'], 'false'))
