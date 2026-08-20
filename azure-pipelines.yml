@@ -31,7 +31,7 @@ variables:
   value: '$(System.DefaultWorkingDirectory)/coverage/lcov.info'
 
 pool:
-  name: azure-agent
+  name: mcs
 
 extends:
   template: pipelines/templates/pipeline-contract.yml@templates

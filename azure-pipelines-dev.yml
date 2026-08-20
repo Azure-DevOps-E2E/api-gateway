@@ -36,7 +36,7 @@ variables:
   value: '$(Build.SourceVersion)'
 
 pool:
-  name: azure-agent
+  name: mcs
 
 extends:
   template: pipelines/templates/pipeline-contract.yml@templates
