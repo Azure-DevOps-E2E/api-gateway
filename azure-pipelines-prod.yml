@@ -36,7 +36,7 @@ variables:
   value: ${{ parameters.releaseTag }}
 
 pool:
-  name: 'msc Azure Pipelines'
+  name: 'Azure Pipelines'
 
 extends:
   template: pipelines/templates/pipeline-contract.yml@templates
