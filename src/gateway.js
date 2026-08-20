@@ -52,6 +52,7 @@ function parseTarget(value, name) {
 function loadConfig(env = process.env) {
   return {
     version: env.APP_VERSION || DEFAULTS.version,
+    imageTag: env.APP_IMAGE_TAG || env.APP_VERSION || DEFAULTS.version,
     requestTimeoutMs: positiveInteger(env.REQUEST_TIMEOUT_MS, DEFAULTS.requestTimeoutMs, 'REQUEST_TIMEOUT_MS'),
     healthTimeoutMs: positiveInteger(env.HEALTH_TIMEOUT_MS, DEFAULTS.healthTimeoutMs, 'HEALTH_TIMEOUT_MS'),
     maxBodyBytes: positiveInteger(env.MAX_BODY_BYTES, DEFAULTS.maxBodyBytes, 'MAX_BODY_BYTES'),
@@ -68,6 +69,7 @@ function normalizeConfig(input = {}) {
   const targets = input.targets || {};
   return {
     version: input.version || DEFAULTS.version,
+    imageTag: input.imageTag || input.version || DEFAULTS.version,
     requestTimeoutMs: positiveInteger(input.requestTimeoutMs, DEFAULTS.requestTimeoutMs, 'requestTimeoutMs'),
     healthTimeoutMs: positiveInteger(input.healthTimeoutMs, DEFAULTS.healthTimeoutMs, 'healthTimeoutMs'),
     maxBodyBytes: positiveInteger(input.maxBodyBytes, DEFAULTS.maxBodyBytes, 'maxBodyBytes'),
@@ -107,6 +109,9 @@ function selectRoute(pathname) {
   }
   if (pathname === '/health') {
     return { kind: 'dashboard', name: 'health-dashboard' };
+  }
+  if (pathname === '/api/v1/system/versions' || pathname === '/health/versions') {
+    return { kind: 'versions', name: 'service-versions' };
   }
   if (pathname === '/health/frontend') {
     return { kind: 'health-proxy', target: 'frontend', name: 'frontend', path: '/health' };
@@ -197,6 +202,98 @@ function responseHeaders(headers, requestId) {
   result['x-request-id'] = requestId;
   result['x-content-type-options'] = 'nosniff';
   return result;
+}
+
+function healthRequestHeaders(requestId) {
+  return {
+    accept: 'application/json',
+    'x-request-id': requestId
+  };
+}
+
+function parseHealthSnapshot(service, result) {
+  const payload = result.payload || {};
+  const version = typeof payload.version === 'string' && payload.version.trim() ? payload.version : 'unknown';
+  const imageTag = typeof payload.imageTag === 'string' && payload.imageTag.trim() ? payload.imageTag : version;
+  return {
+    service,
+    status: result.ok ? 'UP' : 'DOWN',
+    version,
+    imageTag
+  };
+}
+
+function fetchHealthSnapshot(target, requestId, timeoutMs) {
+  return new Promise((resolve) => {
+    const client = target.protocol === 'https:' ? https : http;
+    let settled = false;
+    const upstream = client.request({
+      protocol: target.protocol,
+      hostname: target.hostname,
+      port: target.port || undefined,
+      method: 'GET',
+      path: upstreamPath(target, '/health'),
+      headers: healthRequestHeaders(requestId)
+    }, (upstreamResponse) => {
+      const chunks = [];
+      upstreamResponse.on('data', (chunk) => chunks.push(chunk));
+      upstreamResponse.on('end', () => {
+        settled = true;
+        const body = Buffer.concat(chunks).toString('utf8');
+        let payload = {};
+        if (body) {
+          try {
+            payload = JSON.parse(body);
+          } catch {
+            payload = {};
+          }
+        }
+        resolve({
+          ok: (upstreamResponse.statusCode || 500) < 500,
+          payload
+        });
+      });
+    });
+
+    upstream.setTimeout(timeoutMs, () => {
+      const timeoutError = new Error('upstream timeout');
+      timeoutError.code = 'ETIMEDOUT';
+      upstream.destroy(timeoutError);
+    });
+
+    upstream.on('error', () => {
+      if (!settled) {
+        resolve({ ok: false, payload: {} });
+      }
+    });
+
+    upstream.end();
+  });
+}
+
+async function collectServiceVersions(config, requestId) {
+  const services = [
+    { name: 'frontend', target: config.targets.frontend },
+    { name: 'user-service', target: config.targets.user },
+    { name: 'catalog-service', target: config.targets.catalog },
+    { name: 'order-service', target: config.targets.order }
+  ];
+
+  const snapshots = await Promise.all(
+    services.map(async ({ name, target }) => {
+      const result = await fetchHealthSnapshot(target, requestId, config.healthTimeoutMs);
+      return parseHealthSnapshot(name, result);
+    })
+  );
+
+  return {
+    status: snapshots.some((service) => service.status !== 'UP') ? 'DEGRADED' : 'UP',
+    service: 'api-gateway',
+    version: config.version,
+    imageTag: config.imageTag,
+    generatedAt: new Date().toISOString(),
+    services: snapshots
+  };
 }
 
 function upstreamPath(target, incomingPath) {
@@ -309,7 +406,34 @@ function createGateway(options = {}) {
 
     const route = selectRoute(parsedUrl.pathname);
     if (route.kind === 'self-health') {
-      sendJson(response, 200, { status: 'UP', service: 'api-gateway', version: config.version }, requestId);
+      sendJson(response, 200, { status: 'UP', service: 'api-gateway', version: config.version, imageTag: config.imageTag }, requestId);
+      return;
+    }
+
+    if (route.kind === 'versions') {
+      if (request.method !== 'GET' && request.method !== 'HEAD') {
+        sendError(response, 405, 'METHOD_NOT_ALLOWED', 'Only GET and HEAD are supported', requestId);
+        return;
+      }
+      collectServiceVersions(config, requestId)
+        .then((payload) => {
+          if (response.headersSent || response.destroyed) {
+            return;
+          }
+          if (request.method === 'HEAD') {
+            response.writeHead(200, {
+              ...standardHeaders(requestId),
+              'content-length': 0
+            });
+            response.end();
+            return;
+          }
+          sendJson(response, 200, payload, requestId);
+        })
+        .catch((error) => {
+          logger.error?.(error);
+          sendError(response, 503, 'UPSTREAM_UNAVAILABLE', 'Unable to collect service versions', requestId);
+        });
       return;
     }
 

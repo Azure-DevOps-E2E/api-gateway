@@ -44,6 +44,10 @@ before(async () => {
   }));
 
   const userUrl = await listen(http.createServer((request, response) => {
+    if (request.url === '/health') {
+      jsonResponse(response, { status: 'UP', service: 'user-service', version: 'user-test' });
+      return;
+    }
     jsonResponse(response, {
       service: 'user-service',
       method: request.method,
@@ -53,10 +57,18 @@ before(async () => {
   }));
 
   const catalogUrl = await listen(http.createServer((request, response) => {
+    if (request.url === '/health') {
+      jsonResponse(response, { status: 'UP', service: 'catalog-service', version: 'catalog-test' });
+      return;
+    }
     jsonResponse(response, { service: 'catalog-service', url: request.url });
   }));
 
   const orderUrl = await listen(http.createServer((request, response) => {
+    if (request.url === '/health') {
+      jsonResponse(response, { status: 'UP', service: 'order-service', version: 'order-test' });
+      return;
+    }
     const chunks = [];
     request.on('data', (chunk) => chunks.push(chunk));
     request.on('end', () => {
@@ -97,6 +109,7 @@ test('routes only complete API path segments', () => {
   assert.equal(selectRoute('/api/v1/users').target, 'user');
   assert.equal(selectRoute('/api/v1/users/42').target, 'user');
   assert.equal(selectRoute('/api/v1/users-extra').kind, 'missing-api');
+  assert.equal(selectRoute('/api/v1/system/versions').kind, 'versions');
   assert.equal(selectRoute('/store').target, 'frontend');
 });
 
@@ -107,7 +120,8 @@ test('reports gateway health and runtime version', async () => {
   assert.deepEqual(await response.json(), {
     status: 'UP',
     service: 'api-gateway',
-    version: 'gateway-test'
+    version: 'gateway-test',
+    imageTag: 'gateway-test'
   });
 });
 
@@ -148,6 +162,23 @@ test('proxies component health through a stable gateway URL', async () => {
     service: 'frontend',
     version: 'web-test'
   });
+});
+test('reports consolidated service versions and image tags', async () => {
+  const response = await fetch(`${gatewayUrl}/api/v1/system/versions`);
+  assert.equal(response.status, 200);
+
+  const body = await response.json();
+  assert.equal(body.status, 'UP');
+  assert.equal(body.service, 'api-gateway');
+  assert.equal(body.version, 'gateway-test');
+  assert.equal(body.imageTag, 'gateway-test');
+  assert.match(body.generatedAt, /^\d{4}-\d{2}-\d{2}T/);
+  assert.deepEqual(body.services, [
+    { service: 'frontend', status: 'UP', version: 'web-test', imageTag: 'web-test' },
+    { service: 'user-service', status: 'UP', version: 'user-test', imageTag: 'user-test' },
+    { service: 'catalog-service', status: 'UP', version: 'catalog-test', imageTag: 'catalog-test' },
+    { service: 'order-service', status: 'UP', version: 'order-test', imageTag: 'order-test' }
+  ]);
 });
 
 test('returns a common JSON error for unknown API routes', async () => {

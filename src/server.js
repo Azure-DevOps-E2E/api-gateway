@@ -18,7 +18,8 @@ server.listen(port, '0.0.0.0', () => {
     timestamp: new Date().toISOString(),
     message: 'api-gateway started',
     port,
-    version: process.env.APP_VERSION || '1.0.0'
+    version: process.env.APP_VERSION || '1.0.0',
+    imageTag: process.env.APP_IMAGE_TAG || process.env.APP_VERSION || '1.0.0'
   }));
 });
 
