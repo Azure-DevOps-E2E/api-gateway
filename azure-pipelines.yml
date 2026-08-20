@@ -68,6 +68,8 @@ extends:
             cacheKey: '$(serviceName)-node$(nodeVersion)'
             testResultsFile: reports/test-results.xml
             coverageFile: coverage/lcov.info
+            validationCommand: 'npm run check'
+            buildCommand: 'npm run build'
             condition: and(succeeded(), eq(variables['detect.skipHeavyCI'], 'false'))
 
         - task: PublishTestResults@2

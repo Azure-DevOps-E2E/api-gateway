@@ -154,11 +154,13 @@ fast during startup.
 npm ci
 npm test
 npm run check
+npm run build
 ```
 
 Tests create temporary HTTP upstreams and verify path selection, query and body
 forwarding, request IDs, frontend fallback, health proxying, unavailable
-upstreams, and payload limits. `npm run check` validates JavaScript syntax.
+upstreams, and payload limits. `npm run check` validates JavaScript syntax,
+and `npm run build` verifies the server entrypoints are still valid.
 
 ## 🐳 Container Image
 
