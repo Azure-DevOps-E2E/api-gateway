@@ -94,7 +94,7 @@ extends:
 
         - task: PublishCodeCoverageResults@2
           displayName: 'Publish coverage report'
-          condition: and(succeededOrFailed(), eq(variables['detect.skipHeavyCI'], 'false'))
+          condition: and(succeededOrFailed(), eq(variables['detect.skipHeavyCI'], 'false'), exists('$(coverageSummaryFile)'))
           inputs:
             summaryFileLocation: '$(coverageSummaryFile)'
             pathToSources: '$(Build.SourcesDirectory)'
