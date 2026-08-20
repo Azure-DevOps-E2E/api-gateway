@@ -155,11 +155,30 @@ extends:
             autoCreate: false
             waitIfMissing: true
             timeoutMinutes: 30
+    - stage: ManualApproval
+      displayName: 'Manual approval - $(serviceName)'
+      dependsOn: ValidateReleaseTag
+      condition: and(succeeded(), eq(dependencies.ResolveCandidate.outputs['Resolve.resolveCandidate.shouldPromote'], 'true'))
+      jobs:
+      - job: AwaitApproval
+        displayName: 'Approve release promotion'
+        pool: server
+        timeoutInMinutes: 4320
+        steps:
+        - task: ManualValidation@1
+          timeoutInMinutes: 1440
+          inputs:
+            notifyUsers: ''
+            instructions: |
+              Approve releaseTag $(releaseTag) for $(serviceName).
+              Confirm the Git tag exists and the release is ready to promote.
+            onTimeout: reject
     - stage: PromoteImage
       displayName: 'Promote image - $(serviceName)'
       dependsOn:
       - ResolveCandidate
       - ValidateReleaseTag
+      - ManualApproval
       condition: and(succeeded(), eq(dependencies.ResolveCandidate.outputs['Resolve.resolveCandidate.shouldPromote'], 'true'))
       variables:
       - name: candidateSourceVersion
