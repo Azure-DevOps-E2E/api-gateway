@@ -101,10 +101,19 @@ extends:
           inputs:
             packageType: sdk
             version: '8.x'
+        - bash: |
+            set -euo pipefail
+            if [ -f "$(coverageSummaryFile)" ]; then
+              echo "##vso[task.setvariable variable=coverageSummaryFileExists]true"
+            else
+              echo "##vso[task.setvariable variable=coverageSummaryFileExists]false"
+            fi
+          displayName: 'Detect coverage report'
+          condition: succeededOrFailed()
 
         - task: PublishCodeCoverageResults@2
           displayName: 'Publish coverage report'
-          condition: and(succeededOrFailed(), exists('$(coverageSummaryFile)'))
+          condition: and(succeededOrFailed(), eq(variables['coverageSummaryFileExists'], 'true'))
           inputs:
             summaryFileLocation: '$(coverageSummaryFile)'
             pathToSources: '$(Build.SourcesDirectory)'
