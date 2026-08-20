@@ -33,7 +33,7 @@ variables:
 - name: trivyVersion
   value: '0.72.0'
 - name: candidateTag
-  value: 'candidate-$(Build.SourceVersion)'
+  value: '$(Build.SourceVersion)'
 
 pool:
   name: azure-agent
