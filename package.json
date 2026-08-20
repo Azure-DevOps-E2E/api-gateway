@@ -10,6 +10,7 @@
   "scripts": {
     "start": "node src/server.js",
     "test": "node --test",
-    "check": "node --check src/gateway.js && node --check src/server.js && node --check test/gateway.test.js"
+    "check": "node --check src/gateway.js && node --check src/server.js && node --check test/gateway.test.js",
+    "build": "node --check src/gateway.js && node --check src/server.js"
   }
 }

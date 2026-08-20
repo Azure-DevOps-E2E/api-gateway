@@ -33,10 +33,10 @@ variables:
 - name: trivyVersion
   value: '0.72.0'
 - name: candidateTag
-  value: 'candidate-$(Build.SourceVersion)'
+  value: '$(Build.SourceVersion)'
 
 pool:
-  name: azure-agent
+  name: 'Azure Pipelines'
 
 extends:
   template: pipelines/templates/pipeline-contract.yml@templates
@@ -101,10 +101,19 @@ extends:
           inputs:
             packageType: sdk
             version: '8.x'
+        - bash: |
+            set -euo pipefail
+            if [ -f "$(coverageSummaryFile)" ]; then
+              echo "##vso[task.setvariable variable=coverageSummaryFileExists]true"
+            else
+              echo "##vso[task.setvariable variable=coverageSummaryFileExists]false"
+            fi
+          displayName: 'Detect coverage report'
+          condition: succeededOrFailed()
 
         - task: PublishCodeCoverageResults@2
           displayName: 'Publish coverage report'
-          condition: succeededOrFailed()
+          condition: and(succeededOrFailed(), eq(variables['coverageSummaryFileExists'], 'true'))
           inputs:
             summaryFileLocation: '$(coverageSummaryFile)'
             pathToSources: '$(Build.SourcesDirectory)'
@@ -131,6 +140,7 @@ extends:
             repository: '$(imageRepository)'
             dockerfile: '$(dockerfilePath)'
             buildContext: '$(buildContext)'
+            arguments: '--build-arg APP_VERSION=$(candidateTag)'
             tags: |
               $(candidateTag)
               dev

@@ -51,6 +51,7 @@ NGINX SPA fallback.
 | `/health/user-service` | User Service `/health` |
 | `/health/catalog-service` | Catalog Service `/health` |
 | `/health/order-service` | Order Service `/health` |
+| `/api/v1/system/versions` or `/health/versions` | Consolidated JSON version report for the gateway and downstream services |
 
 Routing matches complete path segments. For example,
 `/api/v1/users/usr-001` is valid, while `/api/v1/users-extra` is not treated
@@ -70,6 +71,12 @@ Trace a request across the gateway and User Service:
 curl -i \
   -H "X-Request-ID: docs-gateway-001" \
   http://localhost:8080/api/v1/users/usr-001
+```
+
+Inspect the deployed version and image tag snapshot for all services:
+
+```bash
+curl -i http://localhost:8080/api/v1/system/versions
 ```
 
 Create an order through the public entry point:
@@ -104,6 +111,10 @@ curl -i \
 
 Component health failures use `503` with `status: "DOWN"` instead of the
 application error shape.
+
+The version report normalizes each component payload to include both `version`
+and `imageTag`. When a service does not expose a separate `imageTag`, the API
+falls back to the reported `version`.
 
 ## 🚀 Quick Start
 
@@ -154,11 +165,13 @@ fast during startup.
 npm ci
 npm test
 npm run check
+npm run build
 ```
 
 Tests create temporary HTTP upstreams and verify path selection, query and body
 forwarding, request IDs, frontend fallback, health proxying, unavailable
-upstreams, and payload limits. `npm run check` validates JavaScript syntax.
+upstreams, and payload limits. `npm run check` validates JavaScript syntax,
+and `npm run build` verifies the server entrypoints are still valid.
 
 ## 🐳 Container Image
 

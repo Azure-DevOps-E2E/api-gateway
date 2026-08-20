@@ -5,9 +5,10 @@ FROM node:${NODE_VERSION}-alpine${ALPINE_VERSION} AS node-runtime
 
 FROM alpine:${ALPINE_VERSION}
 
+ARG APP_VERSION=1.0.0
 ENV NODE_ENV=production \
     PORT=8080 \
-    APP_VERSION=1.0.0
+    APP_VERSION=${APP_VERSION}
 
 WORKDIR /app
 
