@@ -52,6 +52,7 @@ function parseTarget(value, name) {
 function loadConfig(env = process.env) {
   return {
     version: env.APP_VERSION || DEFAULTS.version,
+    imageTag: env.APP_IMAGE_TAG || env.APP_VERSION || DEFAULTS.version,
     requestTimeoutMs: positiveInteger(env.REQUEST_TIMEOUT_MS, DEFAULTS.requestTimeoutMs, 'REQUEST_TIMEOUT_MS'),
     healthTimeoutMs: positiveInteger(env.HEALTH_TIMEOUT_MS, DEFAULTS.healthTimeoutMs, 'HEALTH_TIMEOUT_MS'),
     maxBodyBytes: positiveInteger(env.MAX_BODY_BYTES, DEFAULTS.maxBodyBytes, 'MAX_BODY_BYTES'),
@@ -68,6 +69,7 @@ function normalizeConfig(input = {}) {
   const targets = input.targets || {};
   return {
     version: input.version || DEFAULTS.version,
+    imageTag: input.imageTag || input.version || DEFAULTS.version,
     requestTimeoutMs: positiveInteger(input.requestTimeoutMs, DEFAULTS.requestTimeoutMs, 'requestTimeoutMs'),
     healthTimeoutMs: positiveInteger(input.healthTimeoutMs, DEFAULTS.healthTimeoutMs, 'healthTimeoutMs'),
     maxBodyBytes: positiveInteger(input.maxBodyBytes, DEFAULTS.maxBodyBytes, 'maxBodyBytes'),
@@ -288,7 +290,7 @@ async function collectServiceVersions(config, requestId) {
     status: snapshots.some((service) => service.status !== 'UP') ? 'DEGRADED' : 'UP',
     service: 'api-gateway',
     version: config.version,
-    imageTag: config.version,
+    imageTag: config.imageTag,
     generatedAt: new Date().toISOString(),
     services: snapshots
   };
@@ -404,7 +406,7 @@ function createGateway(options = {}) {
 
     const route = selectRoute(parsedUrl.pathname);
     if (route.kind === 'self-health') {
-      sendJson(response, 200, { status: 'UP', service: 'api-gateway', version: config.version, imageTag: config.version }, requestId);
+      sendJson(response, 200, { status: 'UP', service: 'api-gateway', version: config.version, imageTag: config.imageTag }, requestId);
       return;
     }
 
