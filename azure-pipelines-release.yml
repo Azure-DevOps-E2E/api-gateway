@@ -1,0 +1,37 @@
+trigger: none
+
+pr: none
+
+parameters:
+- name: releaseTag
+  displayName: 'Release Git tag'
+  type: string
+  default: 'v1.0.$(Build.BuildId)'
+
+resources:
+  repositories:
+  - repository: templates
+    type: github
+    endpoint: github.com_Azure-DevOps-E2E
+    name: Azure-DevOps-E2E/config-management
+    ref: refs/heads/main
+
+variables:
+- group: nexuscart-shared
+- name: serviceName
+  value: 'api-gateway'
+- name: imageRepository
+  value: 'api-gateway'
+- name: releaseTag
+  value: ${{ parameters.releaseTag }}
+
+pool:
+  name: 'Azure Pipelines'
+
+extends:
+  template: pipelines/templates/pipeline-contract.yml@templates
+  parameters:
+    pipelineStages:
+    - template: stages/manual-release.yml@templates
+      parameters:
+        serviceName: 'api-gateway'
