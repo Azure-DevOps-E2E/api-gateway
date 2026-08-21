@@ -6,12 +6,6 @@ trigger:
 
 pr: none
 
-parameters:
-- name: releaseTag
-  displayName: 'Release Git tag'
-  type: string
-  default: 'v1.0.$(Build.BuildId)'
-
 resources:
   repositories:
   - repository: templates
@@ -21,7 +15,6 @@ resources:
     ref: refs/heads/main
 
 variables:
-- group: nexuscart-shared
 - name: serviceName
   value: 'api-gateway'
 - name: imageRepository
@@ -32,8 +25,6 @@ variables:
   value: '$(System.DefaultWorkingDirectory)/reports/test-results.xml'
 - name: coverageSummaryFile
   value: '$(System.DefaultWorkingDirectory)/coverage/lcov.info'
-- name: releaseTag
-  value: ${{ parameters.releaseTag }}
 
 pool:
   name: 'Azure Pipelines'
@@ -134,141 +125,3 @@ extends:
           displayName: 'Checkout full Git history'
 
         - template: steps/container/resolve-candidate.yml@templates
-
-    - stage: ValidateReleaseTag
-      displayName: 'Validate release tag - $(serviceName)'
-      dependsOn: ResolveCandidate
-      condition: and(succeeded(), eq(dependencies.ResolveCandidate.outputs['Resolve.resolveCandidate.shouldPromote'], 'true'))
-      jobs:
-      - job: ValidateTag
-        displayName: 'Require an existing release Git tag'
-        steps:
-        - checkout: self
-          clean: true
-          fetchDepth: 1
-          persistCredentials: true
-          displayName: 'Checkout source for tag validation'
-
-        - template: steps/validate-release-tag.yml@templates
-          parameters:
-            releaseTag: '$(releaseTag)'
-            autoCreate: false
-            waitIfMissing: true
-            timeoutMinutes: 30
-    - stage: ManualApproval
-      displayName: 'Manual approval - $(serviceName)'
-      dependsOn: ValidateReleaseTag
-      condition: and(succeeded(), eq(dependencies.ResolveCandidate.outputs['Resolve.resolveCandidate.shouldPromote'], 'true'))
-      jobs:
-      - job: AwaitApproval
-        displayName: 'Approve release promotion'
-        pool: server
-        timeoutInMinutes: 4320
-        steps:
-        - task: ManualValidation@1
-          timeoutInMinutes: 1440
-          inputs:
-            notifyUsers: ''
-            instructions: |
-              Approve releaseTag $(releaseTag) for $(serviceName).
-              Confirm the Git tag exists and the release is ready to promote.
-            onTimeout: reject
-    - stage: PromoteImage
-      displayName: 'Promote image - $(serviceName)'
-      dependsOn:
-      - ResolveCandidate
-      - ValidateReleaseTag
-      - ManualApproval
-      condition: and(succeeded(), eq(dependencies.ResolveCandidate.outputs['Resolve.resolveCandidate.shouldPromote'], 'true'))
-      variables:
-      - name: candidateSourceVersion
-        value: $[ stageDependencies.ResolveCandidate.Resolve.outputs['resolveCandidate.candidateSourceVersion'] ]
-      jobs:
-      - job: Promote
-        displayName: 'Retag candidate for PROD without rebuild'
-        steps:
-        - checkout: none
-
-        - bash: |
-            set -euo pipefail
-            if [[ ! "$(releaseTag)" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-              echo "releaseTag must match v<major>.<minor>.<patch>, for example v1.0.119"
-              exit 1
-            fi
-          displayName: 'Validate release tag'
-
-        - task: Docker@2
-          displayName: 'Sign in to ACR'
-          inputs:
-            command: login
-            containerRegistry: 'acrLoginServer'
-
-        - template: steps/container/promote.yml@templates
-          parameters:
-            registry: '$(acrLoginServer)'
-            repository: '$(imageRepository)'
-            candidateTag: '$(candidateSourceVersion)'
-            releaseTag: '$(releaseTag)'
-
-        - task: Docker@2
-          displayName: 'Sign out of ACR'
-          condition: always()
-          inputs:
-            command: logout
-            containerRegistry: 'acrLoginServer'
-
-    # Updating the Production manifest is the deployment boundary while direct
-    # AKS deployment and runtime verification remain disabled.
-    - stage: UpdateManifest
-      displayName: 'Update PROD manifest - $(serviceName)'
-      dependsOn: PromoteImage
-      condition: succeeded()
-      jobs:
-      - deployment: UpdateManifest
-        displayName: 'Commit release tag to PROD values'
-        environment: Production
-        strategy:
-          runOnce:
-            deploy:
-              steps:
-              - checkout: templates
-                clean: true
-                fetchDepth: 0
-                persistCredentials: true
-                path: s/templates
-                displayName: 'Checkout writable config repository'
-
-              - bash: |
-                  set -euo pipefail
-                  bash "$(Pipeline.Workspace)/s/templates/scripts/update-manifest.sh" \
-                    --service-name "$(serviceName)" \
-                    --environment prod \
-                    --registry "$(acrLoginServer)" \
-                    --image-tag "$(releaseTag)" \
-                    --repository-root "$(Pipeline.Workspace)/s/templates"
-                name: updateManifest
-                displayName: 'Update and push PROD manifest'
-
-    - stage: Release
-      displayName: 'GitHub release - $(serviceName)'
-      dependsOn:
-      - UpdateManifest
-      - PromoteImage
-      - ResolveCandidate
-      condition: succeeded()
-      variables:
-      - name: promotedImageDigest
-        value: $[ stageDependencies.PromoteImage.Promote.outputs['promoteImage.promotedImageDigest'] ]
-      - name: candidateSourceVersion
-        value: $[ stageDependencies.ResolveCandidate.Resolve.outputs['resolveCandidate.candidateSourceVersion'] ]
-      jobs:
-      - job: GitHubRelease
-        displayName: 'Create GitHub Release'
-        steps:
-        - checkout: self
-          clean: true
-          fetchDepth: 0
-          persistCredentials: true
-          displayName: 'Checkout source for release creation'
-
-        - template: steps/create-github-release.yml@templates
