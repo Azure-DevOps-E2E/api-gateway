@@ -6,7 +6,7 @@ parameters:
 - name: releaseTag
   displayName: 'Release Git tag'
   type: string
-  default: 'v1.0.$(Build.BuildId)'
+  default: ''
 
 resources:
   repositories:
@@ -22,8 +22,6 @@ variables:
   value: 'api-gateway'
 - name: imageRepository
   value: 'api-gateway'
-- name: releaseTag
-  value: ${{ parameters.releaseTag }}
 
 pool:
   name: 'Azure Pipelines'
@@ -35,3 +33,4 @@ extends:
     - template: pipelines/templates/stages/manual-release.yml@templates
       parameters:
         serviceName: 'api-gateway'
+        releaseTag: ${{ parameters.releaseTag }}
