@@ -32,6 +32,6 @@ extends:
   template: pipelines/templates/pipeline-contract.yml@templates
   parameters:
     pipelineStages:
-    - template: stages/manual-release.yml@templates
+    - template: pipelines/templates/stages/manual-release.yml@templates
       parameters:
         serviceName: 'api-gateway'
