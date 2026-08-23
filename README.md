@@ -45,7 +45,8 @@ NGINX SPA fallback.
 | `/api/v1/products` and descendants | Catalog Service |
 | `/api/v1/orders` and descendants | Order Service |
 | `/health` | Integrated HTML health dashboard |
-| `/gateway-health` | API Gateway liveness JSON |
+| `/liveness` | API Gateway process liveness JSON |
+| `/gateway-health` | Legacy API Gateway health alias |
 | `/health/api-gateway` | API Gateway health JSON |
 | `/health/frontend` | Frontend `/health` |
 | `/health/user-service` | User Service `/health` |
