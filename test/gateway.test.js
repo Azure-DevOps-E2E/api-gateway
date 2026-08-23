@@ -106,11 +106,22 @@ after(async () => {
 });
 
 test('routes only complete API path segments', () => {
+  assert.equal(selectRoute('/liveness').kind, 'liveness');
   assert.equal(selectRoute('/api/v1/users').target, 'user');
   assert.equal(selectRoute('/api/v1/users/42').target, 'user');
   assert.equal(selectRoute('/api/v1/users-extra').kind, 'missing-api');
   assert.equal(selectRoute('/api/v1/system/versions').kind, 'versions');
   assert.equal(selectRoute('/store').target, 'frontend');
+});
+
+test('reports process liveness without checking downstream services', async () => {
+  const response = await fetch(gatewayUrl + '/liveness');
+  assert.equal(response.status, 200);
+  assert.match(response.headers.get('x-request-id'), /^[A-Za-z0-9._:-]+$/);
+  assert.deepEqual(await response.json(), {
+    status: 'UP',
+    service: 'api-gateway'
+  });
 });
 
 test('reports gateway health and runtime version', async () => {
