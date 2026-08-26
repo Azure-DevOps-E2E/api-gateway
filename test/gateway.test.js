@@ -131,7 +131,8 @@ test('exposes a basic health alias for quick checks', async () => {
   assert.deepEqual(await response.json(), {
     status: 'UP',
     service: 'api-gateway',
-    check: 'basic'
+    check: 'basic',
+    scope: 'process'
   });
 });
 
