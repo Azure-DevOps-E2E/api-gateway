@@ -417,7 +417,12 @@ function createGateway(options = {}) {
     }
 
     if (route.kind === 'basic-health') {
-      sendJson(response, 200, { status: 'UP', service: 'api-gateway', check: 'basic' }, requestId);
+      sendJson(response, 200, {
+        status: 'UP',
+        service: 'api-gateway',
+        check: 'basic',
+        scope: 'process'
+      }, requestId);
       return;
     }
 
