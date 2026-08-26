@@ -14,7 +14,7 @@ ENV NODE_ENV=production \
 
 WORKDIR /app
 
-RUN apk add --no-cache libstdc++ \
+RUN apk add --no-cache --upgrade libcrypto3 libssl3 libstdc++ \
     && addgroup -g 1000 -S node \
     && adduser -u 1000 -S -G node node
 
