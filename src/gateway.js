@@ -104,7 +104,7 @@ function safeRequestUrl(rawUrl) {
 }
 
 function selectRoute(pathname) {
-  if (pathname === '/liveness') {
+  if (pathname === '/liveness' || pathname === '/health/basic') {
     return { kind: 'liveness', name: 'api-gateway' };
   }
   if (pathname === '/gateway-health' || pathname === '/health/api-gateway') {
