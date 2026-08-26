@@ -107,7 +107,7 @@ after(async () => {
 
 test('routes only complete API path segments', () => {
   assert.equal(selectRoute('/liveness').kind, 'liveness');
-  assert.equal(selectRoute('/health/basic').kind, 'liveness');
+  assert.equal(selectRoute('/health/basic').kind, 'basic-health');
   assert.equal(selectRoute('/api/v1/users').target, 'user');
   assert.equal(selectRoute('/api/v1/users/42').target, 'user');
   assert.equal(selectRoute('/api/v1/users-extra').kind, 'missing-api');
@@ -130,7 +130,9 @@ test('exposes a basic health alias for quick checks', async () => {
   assert.equal(response.status, 200);
   assert.deepEqual(await response.json(), {
     status: 'UP',
-    service: 'api-gateway'
+    service: 'api-gateway',
+    check: 'basic',
+    scope: 'process'
   });
 });
 

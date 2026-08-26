@@ -104,8 +104,11 @@ function safeRequestUrl(rawUrl) {
 }
 
 function selectRoute(pathname) {
-  if (pathname === '/liveness' || pathname === '/health/basic') {
+  if (pathname === '/liveness') {
     return { kind: 'liveness', name: 'api-gateway' };
+  }
+  if (pathname === '/health/basic') {
+    return { kind: 'basic-health', name: 'api-gateway' };
   }
   if (pathname === '/gateway-health' || pathname === '/health/api-gateway') {
     return { kind: 'self-health', name: 'api-gateway' };
@@ -410,6 +413,16 @@ function createGateway(options = {}) {
     const route = selectRoute(parsedUrl.pathname);
     if (route.kind === 'liveness') {
       sendJson(response, 200, { status: 'UP', service: 'api-gateway' }, requestId);
+      return;
+    }
+
+    if (route.kind === 'basic-health') {
+      sendJson(response, 200, {
+        status: 'UP',
+        service: 'api-gateway',
+        check: 'basic',
+        scope: 'process'
+      }, requestId);
       return;
     }
 
